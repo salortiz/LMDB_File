@@ -133,18 +133,20 @@ sub new {
     $self->open($path, $eflags->{flags}, $eflags->{mode} || 0600)
 	and return;
     warn "Created LMDB::Env $$self\n" if $DEBUG;
-    $Envs{$$self} = { Txns => [], Weak => $self };
-    Scalar::Util::weaken($Envs{$$self}{Weak});
+    $Envs{$$self} = { Txns => [] };
     return $self;
 }
 
 sub DESTROY {
     my $self = shift;
-    if(my $act = $Envs{$$self}{Txns}[0]) {
+    my $txl = $Envs{$$self}{Txns} or return;
+    if(my $act = $txl->[$#$txl]) {
+	warn "LMDB: Destroying an active environment, aborted $$act!\n";
 	$act->abort;
 	undef $Envs{$$self}{Txns};
     }
     $self->close;
+    delete $Envs{$$self};
     warn "Closed LMDB::Env $$self\n" if $DEBUG;
 }
 
@@ -152,7 +154,6 @@ sub BeginTxn{
     my $self = shift;
     $self->get_flags(my $eflags);
     my $tflags = shift || ($eflags & LMDB_File::MDB_RDONLY());
-    warn sprintf("Txn in env with %d\n", Internals::SvREFCNT($self));
     return LMDB::Txn->new($self, $tflags);
 }
 
@@ -165,12 +166,15 @@ sub CLONE_SKIP { 1; }
 
 sub new {
     my ($parent, $env, $tflags) = @_;
+    my $txl = $Envs{$$env}{Txns};
     Carp::croak("Transaction active, shold be subtransaction")
-	if !ref($parent) && @{ $Envs{$$env}{Txns} };
+	if !ref($parent) && @$txl;
     _begin($env, ref($parent) && $parent, $tflags, my $self);
     return unless $self;
+    $Txns{$$self}{Env} = $env;
     $Txns{$$self}{Active} = 1;
-    unshift @{ $Envs{ $$env }{Txns} }, $self;
+    unshift @$txl, $self;
+    Scalar::Util::weaken($txl->[0]);
     warn "Created LMDB::Txn $$self in $$env\n" if $DEBUG;
     return $self;
 }
@@ -183,37 +187,37 @@ sub SubTxn {
 
 sub DESTROY {
     my $self = shift;
-    my $m = delete $Txns{$$self} or return;
-    if($m->{Active}) {
-	warn "LMDB: Destroying an active transaction, aborted $$self!\n";
+    if($Txns{$$self}{Active}) {
+	warn "LMDB: Destroying an active transaction, aborting $$self...\n";
 	$self->abort;
     }
 }
 
 sub _prune {
     my $self = shift;
-    my $list = $Envs{ $self->_env }{Txns};
-    while(my $rel = shift @$list) {
+    my $txl = $Envs{ $self->_env }{Txns};
+    while(my $rel = shift @$txl) {
 	delete $Cursors{$_} for keys %{ $Txns{$$rel}{Cursors} };
 	delete $Txns{$$rel};
 	last if $$rel == $$self;
     }
+    warn "LMDB::Txn: $$self finalized\n" if $DEBUG > 1;
 }
 
 sub abort {
     my $self = shift;
     return unless $Txns{$$self}; # Ignore unless active
     $self->_abort;
-    $self->_prune;
     warn "LMDB::Txn $$self aborted\n" if $DEBUG;
+    $self->_prune;
 }
 
 sub commit {
     my $self = shift;
     croak("Not an active transaction") unless $Txns{$$self} && $Txns{$$self}{Active};
     $self->_commit;
-    $self->_prune;
     warn "LMDB::Txn $$self commited\n" if $DEBUG;
+    $self->_prune;
 }
 
 sub reset {
@@ -250,7 +254,7 @@ sub OpenDB {
 
 sub env {
     my $self = shift;
-    return $Envs{$self->_env}{Weak};
+    return $Txns{$$self}{Env};
 }
 
 package LMDB::Cursor;
@@ -260,7 +264,7 @@ sub new {
     LMDB::Cursor::open($txn, $dbi, my $self);
     return unless $self;
     $Txns{$$txn}{Cursors}{$$self} = 1;
-    $Cursors{$$self} = 1;
+    $Cursors{$$self} = $txn;
     warn "Cursor opened for #".ord($dbi)."\n" if $DEBUG;
     return $self;
 }
@@ -288,7 +292,7 @@ sub _chkalive {
     my $txn = $self->[0];
     Carp::croak("Not an active transaction")
 	unless($txn && ($Txns{ $$txn } || undef($self->[0])));
-    $_dcmp_cv = $self->[4];
+    $_cmp_cv = $self->[2]; $_dcmp_cv = $self->[4];
     return $txn, $self->[1];
 }
 
@@ -355,7 +359,6 @@ sub TIEHASH {
     $gflags->{mode} = shift if @_;
     my $env = LMDB::Env->new($mux, $gflags);
     my $dbi = $env->BeginTxn->OpenDB($gflags->{dbname}, $gflags);
-    $dbi->[2] = $env; # Preserve from destruction
     return $dbi;
 }
 
@@ -379,7 +382,7 @@ sub UNTIE {
     $txn->commit;
     delete $self->[4]; # Free dcmp callback
     delete $self->[3]; # Free cursor
-    delete $self->[2]; # Free env
+    delete $self->[2]; # Free cmp callback
 }
 
 sub SCALAR {
