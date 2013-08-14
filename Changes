@@ -1,0 +1,6 @@
+Revision history for Perl extension LMDB.
+
+0.01  Tue Aug  6 11:44:32 2013
+	- original version; created by h2xs 1.23 with options
+		-b 5.10.1 -d -o '^MDB_...' -p mdb_ -On LMDB lmdb.h -l lmbd
+

@@ -1,0 +1,6 @@
+#0  0x0000000000000000 in ?? ()
+#1  0x00007ffff1080f69 in mdb_cursor_set (mc=mc@entry=0x7fffffffd220, 
+    key=key@entry=0x7fffffffd5f0, data=0x7fffffffd210, op=MDB_GET_BOTH, 
+    exactp=exactp@entry=0x7fffffffd20c) at mdb.c:5156
+#2  0x00007ffff10862af in mdb_del (txn=txn@entry=0xe60a10, dbi=1, 
+    key=key@entry=0x7fffffffd5f0, data=data@entry=0x7fffffffd600) at mdb.c:7171

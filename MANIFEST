@@ -1,0 +1,12 @@
+Changes
+LMDB.xs
+Makefile.PL
+MANIFEST
+ppport.h
+README
+typemap
+t/00-basic.t
+t/01-environment.t
+fallback/const-c.inc
+fallback/const-xs.inc
+lib/LMDB_File.pm
