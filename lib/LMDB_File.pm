@@ -470,14 +470,14 @@ __END__
 
 =head1 NAME
 
-LMDB - Perl extension for OpenLDAP's Lightning Memory-Mapped Database
+LMDB_File - Tie to LMDB (OpenLDAP's Lightning Memory-Mapped Database)
 
 =head1 SYNOPSIS
 
   use LMDB_File;
 
   # Simple TIE interface
-  tie %hash, 'LMDB_File', $path, $flags';
+  tie %hash, 'LMDB_File', $path, $flags;
 
 =head1 DESCRIPTION
 
@@ -633,7 +633,7 @@ If you have a web site set up for your module, mention it here.
 
 =head1 AUTHOR
 
-Salvador Ortiz Garcia, E<lt>sortiz@cpam.orgE<gt>
+Salvador Ortiz Garcia, E<lt>sortiz@cpan.orgE<gt>
 
 =head1 COPYRIGHT AND LICENSE
 

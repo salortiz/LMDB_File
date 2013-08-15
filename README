@@ -1,16 +1,35 @@
-LMDB version 0.01
-=================
+LMDB_File version 0.01
+======================
 
-The README is used to introduce the module and provide instructions on
-how to install the module, any machine dependencies it may have (for
-example C compilers and installed libraries) and any other information
-that should be provided before the module is installed.
+LMDB_File is a Perl wrapper around the OpenLDAP's LMDB (Lightning
+Memory-Mapped Database) C library.
 
-A README file is required for CPAN modules since CPAN extracts the
-README file from a module distribution so that people browsing the
-archive can use it get an idea of the modules uses. It is usually a
-good idea to provide version information here so that people can
-decide whether fixes for the module are worth downloading.
+LMDB is an ultra-fast, ultra-compact key-value data store developed
+by Symas for the OpenLDAP Project. See http://symas.com/mdb/ for details.
+
+LMDB_File provides full access to the complete C API, a thin Perl wrapper
+with an Object-Oriented interface and a simple Perl's tie interface
+compatible with others DBMs.
+
+PREREQUISITES
+
+Before you can build LMDB_File you need to have the following installed
+on your system:
+
+    * Perl 5.10.1 or greater.
+
+    * A working C compiler.
+
+    * LMDB Version 0.9.7 or greater.
+
+      NOTE: At this time there is not yet an official release of the lmdb
+      library, so this package includes a recent copy of the source code
+      from the git repository that Makefile.PL will compile and use for static
+      linking if the library and its header file isn't found installed.
+      
+    * To run the test harness for this module, you must make sure that the
+      directory where you have untarred this module is NOT a network
+      drive, e.g. NFS or AFS.
 
 INSTALLATION
 
@@ -21,19 +40,17 @@ To install this module type the following:
    make test
    make install
 
-DEPENDENCIES
+*** WARNING ***
+This is an early release to allow the interested people the testing and
+discussion of the module: there is some missing features and you should
+be aware that the API isn't in stone yet. See TODO
 
-This module requires these other modules and libraries:
-
-  blah blah blah
 
 COPYRIGHT AND LICENCE
 
-Put the correct copyright and licence information here.
-
 Copyright (C) 2013 by Salvador Ortiz Garcia
 
-This library is free software; you can redistribute it and/or modify
+This module is free software; you can redistribute it and/or modify
 it under the same terms as Perl itself, either Perl version 5.10.1 or,
 at your option, any later version of Perl 5 you may have available.
 

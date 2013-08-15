@@ -23,12 +23,12 @@ constant(sv)
         switch (type) {
         case PERL_constant_NOTFOUND:
           sv =
-	    sv_2mortal(newSVpvf("%s is not a valid LMDB macro", s));
+	    sv_2mortal(newSVpvf("%s is not a valid LMDB_File macro", s));
           PUSHs(sv);
           break;
         case PERL_constant_NOTDEF:
           sv = sv_2mortal(newSVpvf(
-	    "Your vendor has not defined LMDB macro %s, used",
+	    "Your vendor has not defined LMDB_File macro %s, used",
 				   s));
           PUSHs(sv);
           break;
@@ -83,7 +83,7 @@ constant(sv)
           break; */
         default:
           sv = sv_2mortal(newSVpvf(
-	    "Unexpected return type %d while processing LMDB macro %s, used",
+	    "Unexpected return type %d while processing LMDB_File macro %s, used",
                type, s));
           PUSHs(sv);
         }

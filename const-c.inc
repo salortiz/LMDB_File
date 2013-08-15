@@ -773,11 +773,11 @@ my @names = (qw(MDB_APPEND MDB_APPENDDUP MDB_BAD_RSLOT MDB_CORRUPTED MDB_CREATE
             {name=>"MDB_VERSION_STRING", type=>"PV", macro=>"1"});
 
 print constant_types(), "\n"; # macro defs
-foreach (C_constant ("LMDB", 'constant', 'IV', $types, undef, 3, @names) ) {
+foreach (C_constant ("LMDB_File", 'constant', 'IV', $types, undef, 3, @names) ) {
     print $_, "\n"; # C constant subs
 }
 print "\n#### XS Section:\n";
-print XS_constant ("LMDB", $types);
+print XS_constant ("LMDB_File", $types);
 __END__
    */
 

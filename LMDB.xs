@@ -527,6 +527,8 @@ mdb_dcmp(txn, dbi, a, b)
     POSTCALL:
 	MY_POP_MULTICALL;
 
+MODULE = LMDB_File		PACKAGE = LMDB_File	    PREFIX = mdb_
+
 =pod
 int
 mdb_reader_list(env, func, ctx)
@@ -548,9 +550,13 @@ mdb_strerror(err)
 
 char *
 mdb_version(major, minor, patch)
-	int 	&major
-	int 	&minor
-	int	&patch
+	int 	&major = NO_INIT
+	int 	&minor = NO_INIT
+	int	&patch = NO_INIT
+    OUTPUT:
+	major
+	minor
+	patch
 
 BOOT:
     my_lasterr = gv_fetchpv("LMDB_File::last_err", 0, SVt_IV);

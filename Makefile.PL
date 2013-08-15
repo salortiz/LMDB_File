@@ -1,19 +1,44 @@
 use 5.010001;
+use strict;
 use ExtUtils::MakeMaker;
+use Config;
 # See lib/ExtUtils/MakeMaker.pm for details of how to influence
 # the contents of the Makefile that is written.
+
+my $LNAME = 'LMDB';
+my $NAME = "${LNAME}_File";
+my $myextlib = '';
+{
+    my @libdata = ExtUtils::Liblist->ext('-llmdb', 0, 'mdb_env_create');
+    my($Head) = grep -f $_, qw(/usr/include/lmdb.h /usr/local/include/lmdb.h);
+    if($Head && $libdata[0]) {
+	warn "Will use SYSTEM lmdb in @{$libdata[4]}\n";
+    } else {
+	warn "Will use my own copy of liblmdb\n";
+	$myextlib = 'liblmdb/liblmdb$(LIB_EXT)';
+    }
+}
+
 WriteMakefile(
-    NAME              => 'LMDB_File',
-    VERSION_FROM      => 'lib/LMDB_File.pm', # finds $VERSION
-    PREREQ_PM         => {}, # e.g., Module::Name => 1.1
-    ($] >= 5.005 ?     ## Add these new keywords supported since 5.005
-      (ABSTRACT_FROM  => 'lib/LMDB_File.pm', # retrieve abstract from module
-       AUTHOR         => 'Salvador Ortiz Garcia <sog@msg.com.mx>') : ()),
-    LIBS              => ['-llmdb '], # e.g., '-lm'
-    DEFINE            => '', # e.g., '-DHAVE_SOMETHING'
-    INC               => '-I.', # e.g., '-I. -I/usr/include/other'
-	# Un-comment this if you add C files to link with later:
-     OBJECT            => '$(O_FILES)', # link all the C files too
+    NAME		=> $NAME,
+    MIN_PERL_VERSION	=> '5.10.1',
+    VERSION_FROM	=> "lib/$NAME.pm", # finds $VERSION
+    PREREQ_PM		=> {}, # e.g., Module::Name => 1.1
+    ABSTRACT_FROM	=> "lib/$NAME.pm", # retrieve abstract from module
+    AUTHOR		=> 'Salvador Ortiz <sog@msg.com.mx>',
+    DEFINE		=> '', # e.g., '-DHAVE_SOMETHING'
+    XSPROTOARG		=> '-noprototypes',
+    LICENSE		=> 'artistic_2',
+    TEST_REQUIRES	=> { 'Test::More' => 0, 'Test::Exception' => 0 },
+    OBJECT		=> '$(O_FILES)', # link all the C files too
+    ($myextlib ? (
+	MYEXTLIB	=> $myextlib,
+	INC		=> '-I. -I./liblmdb'
+	) : (
+	LIBS		=> ['-llmdb'],
+	INC		=> '-I.'
+	)
+    ),
 );
 if  (eval {require ExtUtils::Constant; 1}) {
   # If you edit these definitions to change the constants used by this module,
@@ -53,7 +78,7 @@ if  (eval {require ExtUtils::Constant; 1}) {
               {name=>"MDB_SET_KEY", macro=>"1"},
               {name=>"MDB_SET_RANGE", macro=>"1"});
   ExtUtils::Constant::WriteConstants(
-                                     NAME         => 'LMDB',
+                                     NAME         => $NAME,
                                      NAMES        => \@names,
                                      DEFAULT_TYPE => 'IV',
                                      C_FILE       => 'const-c.inc',
@@ -68,4 +93,13 @@ else {
     my $fallback = File::Spec->catfile('fallback', $file);
     copy ($fallback, $file) or die "Can't copy $fallback to $file: $!";
   }
+}
+
+sub MY::postamble {
+    if($myextlib) {
+	return <<'EOT';
+$(MYEXTLIB): liblmdb/Makefile
+	cd liblmdb && $(MAKE) all
+EOT
+    }
 }
