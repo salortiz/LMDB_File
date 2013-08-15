@@ -1,5 +1,5 @@
 #!perl
-use Test::More tests => 100;
+use Test::More tests => 106;
 use Test::Exception;
 use strict;
 use warnings;
@@ -54,11 +54,14 @@ throws_ok {
     is($stat->{$_}, 0, "$_ = 0, empty")
 	for qw(depth branch_pages leaf_pages overflow_pages entries);
 
+    is(Internals::SvREFCNT($$env), 1, 'Env Inactive');
     isa_ok(my $txn = $env->BeginTxn, 'LMDB::Txn', 'Transaction');
+    is(Internals::SvREFCNT($$env), 2, 'Env Active');
 
-    throws_ok {
-    	$env->BeginTxn;
-    } qr/Transaction active/, 'Already opened in this proccess';
+    {
+    	isa_ok(my $sub = $env->BeginTxn, 'LMDB::Txn', 'Subtransaction');
+	is(Internals::SvREFCNT($$env), 3, 'Env Active');
+    }
     throws_ok {
 	$txn->OpenDB('NAMED');
     } qr/limit reached/, 'No named allowed';
@@ -67,9 +70,9 @@ throws_ok {
 	isa_ok(my $eclone = $txn->env, 'LMDB::Env', 'Got Env');
 	is($env->id, $eclone->id, "The same ID ($$env)");
 	is(Scalar::Util::refaddr($env), Scalar::Util::refaddr($eclone), 'Same refaddr');
-	is(Internals::SvREFCNT($$env),  2, 'Refcounted');
+	is(Internals::SvREFCNT($$env),  3, 'Refcounted');
     }
-    is(Internals::SvREFCNT($$env), 1, 'Back normal');
+    is(Internals::SvREFCNT($$env), 2, 'Back normal');
 
     # Open main dbi
     isa_ok(my $dbi = $txn->OpenDB, 'LMDB_File', 'DBI created');
@@ -112,6 +115,7 @@ throws_ok {
     throws_ok {
 	$txn->OpenDB;
     } qr/Not an active/, 'Commit finalized txn';
+    is(Internals::SvREFCNT($$env), 1, 'Env Inactive');
 
     # Test copy method
     throws_ok {
@@ -200,7 +204,7 @@ throws_ok {
 
     is($h->{EEEE}, 'Datum #5', 'FETCH');
     is($h->{ABCS}, undef, 'No data');
-    my @keys = sort keys %{$h};
+    my @keys = keys %{$h};
     is(scalar @keys, 26, 'Correct size');
 
     ok(exists $h->{ZZZZ}, 'Exists');
@@ -214,8 +218,8 @@ END {
     unless($ENV{KEEP_TMPS}) {
 	for($dir, $testdir) {
 	    unlink glob("$_/*");
-	    rmdir $_;
-	    #warn "Removed $_\n";
+	    rmdir or warn "rm: $!\n";
+	    warn "Removed $_\n";
 	}
     }
 }

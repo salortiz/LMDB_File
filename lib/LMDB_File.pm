@@ -154,6 +154,8 @@ sub BeginTxn{
     my $self = shift;
     $self->get_flags(my $eflags);
     my $tflags = shift || ($eflags & LMDB_File::MDB_RDONLY());
+    my $txl = $Envs{$$self}{Txns};
+    return $txl->[0]->SubTxn($tflags) if @$txl;
     return LMDB::Txn->new($self, $tflags);
 }
 
@@ -171,8 +173,11 @@ sub new {
 	if !ref($parent) && @$txl;
     _begin($env, ref($parent) && $parent, $tflags, my $self);
     return unless $self;
-    $Txns{$$self}{Env} = $env;
-    $Txns{$$self}{Active} = 1;
+    $Txns{$$self} = {
+	Active => 1,
+	Env => $env,
+	RO  => $tflags & LMDB_File::MDB_RDONLY(),
+    };
     unshift @$txl, $self;
     Scalar::Util::weaken($txl->[0]);
     warn "Created LMDB::Txn $$self in $$env\n" if $DEBUG;
@@ -187,9 +192,17 @@ sub SubTxn {
 
 sub DESTROY {
     my $self = shift;
-    if($Txns{$$self}{Active}) {
-	warn "LMDB: Destroying an active transaction, aborting $$self...\n";
-	$self->abort;
+    my $txp = $Txns{$$self};
+    if($txp->{Active}) {
+	if($txp->{AC}) {
+	    warn "LMDB: Destroying an active transaction, commiting $$self...\n"
+		if $DEBUG;
+	    $self->commit;
+	} else {
+	    warn "LMDB: Destroying an active transaction, aborting $$self...\n"
+		if $DEBUG;
+	    $self->abort;
+	}
     }
 }
 
@@ -235,21 +248,9 @@ sub renew {
     $Txns{$$self}{Active} = 1;
 }
 
-my $dbflmask = do {
-    no strict 'refs';
-    my $f = 0;
-    $f |= &{'LMDB_File::'.$_}() for @{$EXPORT_TAGS{dbflags}};
-    $f;
-};
-
 sub OpenDB {
-    my ($self, $name, $flags) = @_;
-    Carp::croak("Not an active transaction") unless $Txns{$$self};
-    $flags = { flags => ($flags || 0) } unless ref $flags;
-    LMDB_File::_dbi_open($self, $name, $flags->{flags} & $dbflmask, my $dbi);
-    return unless $dbi;
-    warn "Opened dbi #".ord($dbi)."\n" if $DEBUG;
-    return bless [ $self, $dbi ], 'LMDB_File';
+    my $self = shift;
+    LMDB_File->open($self, @_);
 }
 
 sub env {
@@ -282,6 +283,26 @@ package LMDB_File;
 
 our $_dcmp_cv;
 our $_cmp_cv;
+
+my $dbflmask = do {
+    no strict 'refs';
+    my $f = 0;
+    $f |= &{$_}() for @{$EXPORT_TAGS{dbflags}};
+    $f;
+};
+
+sub open {
+    my $proto = shift;
+    my $txn = ref($proto) ? $proto->[0] : shift;
+    my ($name, $flags) = @_;
+    Carp::croak("Need a Txn") unless ref $txn eq 'LMDB::Txn';
+    Carp::croak("Not an active transaction") unless $Txns{$$txn};
+    $flags = { flags => ($flags || 0) } unless ref $flags;
+    _dbi_open($txn, $name, $flags->{flags} & $dbflmask, my $dbi);
+    return unless $dbi;
+    warn "Opened dbi #".ord($dbi)."\n" if $DEBUG;
+    return bless [ $txn, $dbi ], 'LMDB_File';
+}
 
 sub DESTROY {
     my $self = shift;
@@ -336,13 +357,22 @@ sub del {
 
 sub set_dupsort {
     my $self = shift;
-    my $cv = shift;
-    $self->[4] = $cv;
+    $self->[4] = shift;
+}
+
+sub set_compare {
+    my $self = shift;
+    $self->[2] = shift;
 }
 
 sub OpenCursor {
     my $self = shift;
     return LMDB::Cursor->new(_chkalive($self));
+}
+
+sub Txn {
+    my $self = shift;
+    return $self->[0];
 }
 
 our $die_on_err = 1;
@@ -352,14 +382,22 @@ sub TIEHASH {
     my $proto = shift;
     return $proto if ref($proto) && _chkalive($proto); # Auto
     my $mux = shift;
-    return $mux->OpenDB(@_) if ref $mux eq 'LMDB::Txn';
-    return $mux->BeginTxn->OpenDB(@_) if ref $mux eq 'LMDB::Env';
-    my $gflags = shift;
-    $gflags = { flags => $gflags } unless ref $gflags;
-    $gflags->{mode} = shift if @_;
-    my $env = LMDB::Env->new($mux, $gflags);
-    my $dbi = $env->BeginTxn->OpenDB($gflags->{dbname}, $gflags);
-    return $dbi;
+    my ($txn, $name, $gflags);
+    ($name, $gflags) = @_ if ref $mux;
+    if(ref $mux eq 'LMDB::Txn') {
+	$txn = $mux;
+    } elsif(ref $mux eq 'LMDB::Env') {
+	$txn = $mux->BeginTxn;
+	$gflags = { flags => $gflags } unless ref $gflags;
+    } else { # mux is dir
+	$gflags = shift;
+	$gflags = { flags => $gflags } unless ref $gflags;
+	$gflags->{mode} = shift if @_;
+	$name = delete $gflags->{dbname};
+	$txn = LMDB::Env->new($mux, $gflags)->BeginTxn;
+    }
+    # TODO: Set AC
+    $txn->OpenDB($name, $gflags);
 }
 
 sub FETCH {
@@ -379,7 +417,7 @@ sub UNTIE {
     my $self = shift;
     my $txn = $self->[0];
     return unless($txn && ($Txns{ $$txn } || undef($self->[0])));
-    $txn->commit;
+    #$txn->commit;
     delete $self->[4]; # Free dcmp callback
     delete $self->[3]; # Free cursor
     delete $self->[2]; # Free cmp callback
@@ -422,7 +460,7 @@ sub NEXTKEY {
     if($res == MDB_NOTFOUND()) {
 	return;
     }
-    return $key, $data;
+    return $key;
 }
 
 # Autoload methods go after =cut, and are processed by the autosplit program.
@@ -439,7 +477,7 @@ LMDB - Perl extension for OpenLDAP's Lightning Memory-Mapped Database
   use LMDB_File;
 
   # Simple TIE interface
-  tie %hash, 'LMDB', $path, $flags';
+  tie %hash, 'LMDB_File', $path, $flags';
 
 =head1 DESCRIPTION
 

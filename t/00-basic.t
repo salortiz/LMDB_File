@@ -46,6 +46,6 @@ ok( $fail == 0 , 'Constants' );
 
 my $dp;
 {
-    my $env = LMDB::Env->new('t');
-    $dp = $env;
+    #my $env = LMDB::Env->new('t');
+    #$dp = $env;
 }

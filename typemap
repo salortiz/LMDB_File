@@ -51,14 +51,14 @@ T_FD
 T_PTROBJ_N
         if(!SvTRUE($arg)) {
             $var = ($type) NULL;
-        } else if (SvROK($arg) && sv_derived_from($arg, \"${ntype}\")) {
+        } else if (SvROK($arg) && sv_derived_from($arg, \"LMDB::Txn\")) {
             IV tmp = SvIV((SV*)SvRV($arg));
             $var = INT2PTR($type,tmp);
         }
         else
             Perl_croak(aTHX_ \"%s: %s is not of type %s\",
                         ${$ALIAS?\q[GvNAME(CvGV(cv))]:\qq[\"$pname\"]},
-                        \"$var\", \"$ntype\");
+                        \"$var\", \"LMDB::Txn\");
 
 T_UV_N
 	$var =	SvOK($arg) ? ($type)SvUV($arg) : 0;

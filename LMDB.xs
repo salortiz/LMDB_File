@@ -101,7 +101,7 @@ int LMDB_cmp(const MDB_val *a, const MDB_val *b) {
     OP *multicall_cop;							\
     bool multicall_oldcatch = 0; 					\
     U8 hasargs = 0;							\
-    I32 gimme = G_SCALAR
+    I32 gimme = G_SCALAR						
 
 #define MY_PUSH_MULTICALL(txn, dbi) \
     multicall_sv = GvSV(my_dcmpgv);					    \
@@ -111,6 +111,10 @@ int LMDB_cmp(const MDB_val *a, const MDB_val *b) {
 	mdb_set_dupsort(txn, dbi, LMDB_dcmp);				    \
     }									    \
     if(SvROK(GvSV(my_cmpgv)) && SvTYPE(SvRV(GvSV(my_cmpgv))) == SVt_PVCV) { \
+	my_agv = gv_fetchpv("a", GV_ADD, SVt_PV);			    \
+	my_bgv = gv_fetchpv("b", GV_ADD, SVt_PV);			    \
+	SAVESPTR(GvSV(my_agv));						    \
+	SAVESPTR(GvSV(my_bgv));						    \
 	mdb_set_compare(txn, dbi, LMDB_cmp);				    \
     }
 
@@ -503,6 +507,12 @@ mdb_cmp(txn, dbi, a, b)
 	LMDB	dbi
 	DBD	&a
 	DBD	&b
+    PREINIT:
+	dMY_MULTICALL;
+    INIT:
+	MY_PUSH_MULTICALL(txn, dbi);
+    POSTCALL:
+	MY_POP_MULTICALL;
 
 int
 mdb_dcmp(txn, dbi, a, b)
@@ -545,8 +555,6 @@ mdb_version(major, minor, patch)
 BOOT:
     my_lasterr = gv_fetchpv("LMDB_File::last_err", 0, SVt_IV);
     my_errgv = gv_fetchpv("LMDB_File::die_on_err", 0, SVt_IV);
-    my_agv = gv_fetchpv("LMDB::a", GV_ADD|GV_ADDMULTI, SVt_PV);
-    my_bgv = gv_fetchpv("LMDB::b", GV_ADD|GV_ADDMULTI, SVt_PV);
     my_cmpgv = gv_fetchpv("LMDB_File::_cmp_cv", GV_ADD|GV_ADDWARN, SVt_RV);
     my_dcmpgv = gv_fetchpv("LMDB_File::_dcmp_cv", GV_ADD|GV_ADDWARN, SVt_RV);
 
