@@ -7,7 +7,11 @@
 #ifdef	SV_UNDEF_RETURNS_NULL
 #define MySvPV(sv, len)	    SvPV_flags(sv, len, SV_GMAGIC|SV_UNDEF_RETURNS_NULL)
 #else
-#define	MySVPV(sv, len)	    SvOK(sv)?SvPV_flags(sv, len, SV_GMAGIC):((len=0), NULL)
+#define	MySvPV(sv, len)	    SvOK(sv)?SvPV_flags(sv, len, SV_GMAGIC):((len=0), NULL)
+#endif
+
+#ifndef cxinc
+#define cxinc()	Perl_cxinc(aTHX)
 #endif
 
 #include <lmdb.h>

@@ -92,7 +92,6 @@ T_keydatumC
 		SvUTF8_off($arg);
 	    }
 	}
+T_HVREF_REFCOUNT_FIXED
+        $arg = newRV_noinc((SV*)$var);
 
-
-
-	
