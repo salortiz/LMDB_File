@@ -4,6 +4,12 @@
 
 #include "ppport.h"
 
+#ifdef	SV_UNDEF_RETURNS_NULL
+#define MySvPV(sv, len)	    SvPV_flags(sv, len, SV_GMAGIC|SV_UNDEF_RETURNS_NULL)
+#else
+#define	MySVPV(sv, len)	    SvOK(sv)?SvPV_flags(sv, len, SV_GMAGIC):((len=0), NULL)
+#endif
+
 #include <lmdb.h>
 
 #include "const-c.inc"

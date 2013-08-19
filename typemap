@@ -22,8 +22,7 @@ T_datum
 	    $var.mv_data = &val; 
 	    $var.mv_size = sizeof(val);
 	}
-	else $var.mv_data = SvPV_flags($arg, $var.mv_size,
-				       SV_GMAGIC|SV_UNDEF_RETURNS_NULL);
+	else $var.mv_data = MySvPV($arg, $var.mv_size);
 T_keydatum
 	if (isdbkint(txn, dbi)) {
 	    IV val = SvIV($arg); 
@@ -37,8 +36,7 @@ T_datumC
 	    $var.mv_data = &val; 
 	    $var.mv_size = sizeof(val);
 	}
-	else $var.mv_data = SvPV_flags($arg, $var.mv_size,
-				       SV_GMAGIC|SV_UNDEF_RETURNS_NULL);
+	else $var.mv_data = MySvPV($arg, $var.mv_size);
 T_keydatumC
 	if (iscukint(cursor)) {
 	    IV val = SvIV($arg); 
