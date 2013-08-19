@@ -75,12 +75,12 @@ throws_ok {
     is(Internals::SvREFCNT($$env), 2, 'Back normal');
 
     # Open main dbi
-    isa_ok(my $dbi = $txn->OpenDB, 'LMDB_File', 'DBI created');
-    is($dbi->alive, 1, 'The first');
-    is($dbi->flags, 0, 'Main DBI Flags');
+    isa_ok(my $DB = $txn->OpenDB, 'LMDB_File', 'DBI created');
+    is($DB->Alive, 1, 'The first');
+    is($DB->flags, 0, 'Main DBI Flags');
     is($env->info->{numreaders}, 0, "I'm not a reader");
 
-    is($txn->OpenDB->alive, $dbi->alive, 'Just a clone');
+    is($txn->OpenDB->Alive, $DB->Alive, 'Just a clone');
 
     # Put some data
     my %data;
@@ -91,18 +91,18 @@ throws_ok {
 	my $v = sprintf('Datum #%d', $c);
 	$data{$k} = $v; # Keep a copy, for testing
 	if($c < 4) {
-	    is($dbi->put($k, $v), $v, "Put $k");
-	    is($dbi->stat->{entries}, $c, "Entry $c");
+	    is($DB->put($k, $v), $v, "Put $k");
+	    is($DB->stat->{entries}, $c, "Entry $c");
 	} else {
 	    # Don't be verbose
-	    $dbi->put($k, $v);
+	    $DB->put($k, $v);
 	}
     }
     is($c, 26, 'All in');
     # Check data in random HASH order
     $c = 5; # Don't be verbose
     while(my($k, $v) = each %data) {
-	is($dbi->get($k), $v, "Get $k") if(--$c >= 0);
+	is($DB->get($k), $v, "Get $k") if(--$c >= 0);
     }
 
     # Commit
@@ -110,7 +110,7 @@ throws_ok {
 
     # Commit terminates transaction
     throws_ok {
-	$dbi->get('SOMEKEY');
+	$DB->get('SOMEKEY');
     } qr/Not an active/, 'Commit finalized dbi';
     throws_ok {
 	$txn->OpenDB;
@@ -141,17 +141,17 @@ throws_ok {
     is($env->info->{mapsize}, 2 * 1024 * 1024, 'mapsize increased');
     is($env->info->{numreaders}, 0, 'No yet');
 
-    isa_ok(my $dbi = $env->BeginTxn->OpenDB, 'LMDB_File', 'RO DBI opened');
+    isa_ok(my $DB = $env->BeginTxn->OpenDB, 'LMDB_File', 'RO DBI opened');
     throws_ok {
-	$dbi->put('0000', 'Datum #0');
+	$DB->put('0000', 'Datum #0');
     } qr/Permission denied/, 'Read only transaction';
 
     is($env->info->{numreaders}, 1, "I'm a reader");
-    is($dbi->stat->{entries}, 26, 'Has my data');
+    is($DB->stat->{entries}, 26, 'Has my data');
 
     # Read using cursors
-    isa_ok(my $cursor = $dbi->OpenCursor, 'LMDB::Cursor', 'A cursor');
-    is($cursor->dbi, $dbi->alive, 'Get DBI');
+    isa_ok(my $cursor = $DB->Cursor, 'LMDB::Cursor', 'A cursor');
+    is($cursor->dbi, $DB->Alive, 'Get DBI');
 
     $cursor->get(my $key, my $datum, MDB_FIRST);
     is($key, 'AAAA', 'First key');

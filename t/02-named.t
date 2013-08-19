@@ -23,8 +23,8 @@ my $env = LMDB::Env->new($dir, { maxdbs => 5 });
     throws_ok {
 	$txn->OpenDB('SOME');
     } qr/NOTFOUND/, 'No created yet';
-    my $dbi = $txn->OpenDB('SOME', MDB_CREATE);
-    ok($dbi, "CI DB Opened");
+    my $DB = $txn->OpenDB('SOME', MDB_CREATE);
+    ok($DB, "CI DB Opened");
     is($mdb->stat->{entries}, 1, 'Created');
 }
 {
@@ -37,13 +37,13 @@ my $env = LMDB::Env->new($dir, { maxdbs => 5 });
 {
     my $txn = $env->BeginTxn;
     # A case insensitive DB
-    ok(my $dbi = $txn->OpenDB('CI', MDB_CREATE), 'CI Created');
+    ok(my $DBN = $txn->OpenDB('CI', MDB_CREATE), 'CI Created');
     {
 	no warnings 'once';
-	$dbi->set_compare(sub { lc($LMDB_File::a) cmp lc($LMDB_File::b) });
+	$DBN->set_compare(sub { lc($LMDB_File::a) cmp lc($LMDB_File::b) });
     }
     # A Reversed key order DB
-    ok(my $dbr = $dbi->open('RK', MDB_CREATE|MDB_REVERSEKEY), 'RK Created');
+    ok(my $DBR = $DBN->open('RK', MDB_CREATE|MDB_REVERSEKEY), 'RK Created');
 
     my %data;
     my $c;
@@ -53,29 +53,29 @@ my $env = LMDB::Env->new($dir, { maxdbs => 5 });
 	my $v = sprintf('Datum #%d', $c);
 	$data{$k} = $v;
 	if($c < 4) {
-	    is($dbi->put($k, $v), $v, "Put in CI $k");
-	    is($dbi->stat->{entries}, $c, "Entry CI $c");
-	    is($dbr->put($k, $v), $v, "Put in RK $k");
-	    is($dbr->stat->{entries}, $c, "Entry RK $c");
+	    is($DBN->put($k, $v), $v, "Put in CI $k");
+	    is($DBN->stat->{entries}, $c, "Entry CI $c");
+	    is($DBR->put($k, $v), $v, "Put in RK $k");
+	    is($DBR->stat->{entries}, $c, "Entry RK $c");
 	} else {
 	    # Don't be verbose
-	    $dbi->put($k, $v);
-	    $dbr->put($k, $v);
+	    $DBN->put($k, $v);
+	    $DBR->put($k, $v);
 	}
     }
     is($c, 26, 'All in');
     # Check data in random HASH order
     $c = 5; # Don't be verbose
     while(my($k, $v) = each %data) {
-	is($dbi->get(lc $k), $v, "Get CI \L$k");
-	is($dbr->get($k), $v, "Get RK $k");
+	is($DBN->get(lc $k), $v, "Get CI \L$k");
+	is($DBR->get($k), $v, "Get RK $k");
 	--$c or last;
     }
     my $ordkey = [ sort keys %data ];
-    tie %data, $dbi;
+    tie %data, $DBN;
     is_deeply( $ordkey, [ keys %data ], 'Ordered');
     untie %data;
-    tie %data, $dbr;
+    tie %data, $DBR;
     is_deeply( $ordkey, [ reverse keys %data ], 'Reversed' );
     untie %data;
 }

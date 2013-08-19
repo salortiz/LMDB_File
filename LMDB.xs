@@ -66,18 +66,9 @@ static GV *my_agv;
 static GV *my_bgv;
 static GV *my_cmpgv;
 static GV *my_dcmpgv;
-static OP *lmdb_dcmp_cop;
 
-int LMDB_dcmp(const MDB_val *a, const MDB_val *b) {
-    dTHX;
-    sv_setpvn_mg(GvSV(my_agv), a->mv_data, a->mv_size);
-    sv_setpvn_mg(GvSV(my_bgv), b->mv_data, b->mv_size);
-    PL_op = lmdb_dcmp_cop;
-    CALLRUNOPS(aTHX);
-    return SvIV(*PL_stack_sp);
-}
-
-int LMDB_cmp(const MDB_val *a, const MDB_val *b) {
+static int
+LMDB_cmp(const MDB_val *a, const MDB_val *b) {
     dTHX;
     dSP;
     int ret;
@@ -93,6 +84,19 @@ int LMDB_cmp(const MDB_val *a, const MDB_val *b) {
     return ret;
 }
 
+#ifdef dMULTICALL
+
+static OP *lmdb_dcmp_cop;
+static int
+LMDB_dcmp(const MDB_val *a, const MDB_val *b) {
+    dTHX;
+    sv_setpvn_mg(GvSV(my_agv), a->mv_data, a->mv_size);
+    sv_setpvn_mg(GvSV(my_bgv), b->mv_data, b->mv_size);
+    PL_op = lmdb_dcmp_cop;
+    CALLRUNOPS(aTHX);
+    return SvIV(*PL_stack_sp);
+}
+
 #define dMY_MULTICALL	\
     SV	**newsp;							\
     PERL_CONTEXT *cx;							\
@@ -101,7 +105,7 @@ int LMDB_cmp(const MDB_val *a, const MDB_val *b) {
     OP *multicall_cop;							\
     bool multicall_oldcatch = 0; 					\
     U8 hasargs = 0;							\
-    I32 gimme = G_SCALAR						
+    I32 gimme = G_SCALAR
 
 #define MY_PUSH_MULTICALL(txn, dbi) \
     multicall_sv = GvSV(my_dcmpgv);					    \
@@ -122,6 +126,52 @@ int LMDB_cmp(const MDB_val *a, const MDB_val *b) {
     if(SvROK(multicall_sv) && SvTYPE(SvRV(multicall_sv)) == SVt_PVCV) {	\
 	POP_MULTICALL; newsp = newsp;					\
     }
+
+#else /* dMULTICALL */
+
+static int
+LMDB_dcmp(const MDB_val *a, const MDB_val *b) {
+    dTHX;
+    dSP;
+    int ret;
+    ENTER; SAVETMPS;
+    PUSHMARK(SP);
+    sv_setpvn_mg(GvSV(my_agv), a->mv_data, a->mv_size);
+    sv_setpvn_mg(GvSV(my_bgv), b->mv_data, b->mv_size);
+    call_sv(SvRV(GvSV(my_dcmpgv)), G_SCALAR|G_NOARGS);
+    SPAGAIN;
+    ret = POPi;
+    PUTBACK;
+    FREETMPS; LEAVE;
+    return ret;
+}
+
+#define	dMY_MULTICALL  \
+    int needsave = 0;	\
+    SV *my_cmpsv = NULL; \
+    SV *my_dcmpsv = NULL
+
+#define MY_PUSH_MULTICALL(txn, dbi) \
+    my_dcmpsv = GvSV(my_dcmpgv);				    \
+    my_cmpsv = GvSV(my_cmpgv);					    \
+    if(SvROK(my_dcmpsv) && SvTYPE(SvRV(my_dcmpsv)) == SVt_PVCV) {   \
+	mdb_set_dupsort(tx, dbi, LMDB_dcmp);			    \
+	needsave = 1;						    \
+    }								    \
+    if(SvROK(my_cmpgv) && SvTYPE(SvRV(my_cmpgv)) == SVt_PVCV) {	    \
+	mdb_set_compare(txn, dbi, LMDB_cmp);			    \
+	needsave = 1;						    \
+    }								    \
+    if(needsave) {						    \
+	my_agv = gv_fetchpv("a", GV_ADD, SVt_PV);		    \
+	my_bgv = gv_fetchpv("b", GV_ADD, SVt_PV);		    \
+	SAVESPTR(GvSV(my_agv));					    \
+	SAVESPTR(GvSV(my_bgv));					    \
+    }
+
+#define MY_POP_MULTICALL
+
+#endif	/* dMULTICALL */
 
 #define ProcError(res)   \
     if(res) {					\
@@ -380,7 +430,16 @@ mdb_cursor_txn(cursor)
 
 MODULE = LMDB_File		PACKAGE = LMDB_File	    PREFIX = mdb
 
+
+#ifdef __GNUC__
+#pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
+#endif
+
 INCLUDE: const-xs.inc
+
+#ifdef __GNUC__
+#pragma GCC diagnostic warning "-Wmaybe-uninitialized"
+#endif
 
 int
 mdb_dbi_open(txn, name, flags, dbi)
@@ -479,6 +538,8 @@ mdb_put(txn, dbi, key, data, flags)
     PREINIT:
 	dMY_MULTICALL;
     INIT:
+	if(flags & MDB_RESERVE) /* TODO */
+	    croak("MDB_RESERVE flag unimplemented.");
 	MY_PUSH_MULTICALL(txn, dbi);
     POSTCALL:
 	MY_POP_MULTICALL;
