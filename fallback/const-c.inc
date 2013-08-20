@@ -592,11 +592,11 @@ constant_15 (pTHX_ const char *name, IV *iv_return) {
 }
 
 static int
-constant_16 (pTHX_ const char *name, IV *iv_return) {
+constant_16 (pTHX_ const char *name, IV *iv_return, const char **pv_return) {
   /* When generated this function returned values for the list of names given
      here.  However, subsequent manual editing may have added or removed some.
      MDB_GET_MULTIPLE MDB_INCOMPATIBLE MDB_LAST_ERRCODE MDB_READERS_FULL
-     MDB_VERSION_FULL */
+     MDB_VERSION_DATE MDB_VERSION_FULL */
   /* Offset 4 gives the best switch position.  */
   switch (name[4]) {
   case 'G':
@@ -640,6 +640,11 @@ constant_16 (pTHX_ const char *name, IV *iv_return) {
     }
     break;
   case 'V':
+    if (memEQ(name, "MDB_VERSION_DATE", 16)) {
+    /*                   ^                  */
+      *pv_return = MDB_VERSION_DATE;
+      return PERL_constant_ISPV;
+    }
     if (memEQ(name, "MDB_VERSION_FULL", 16)) {
     /*                   ^                  */
 #ifdef MDB_VERSION_FULL
@@ -718,7 +723,7 @@ constant_17 (pTHX_ const char *name, IV *iv_return) {
 }
 
 static int
-constant (pTHX_ const char *name, STRLEN len, IV *iv_return) {
+constant (pTHX_ const char *name, STRLEN len, IV *iv_return, const char **pv_return) {
   /* Initially switch on the length of the name.  */
   /* When generated this function returned values for the list of names given
      in this section of perl code.  Rather than manually editing these functions
@@ -733,7 +738,7 @@ constant (pTHX_ const char *name, STRLEN len, IV *iv_return) {
 #!/usr/bin/perl -w
 use ExtUtils::Constant qw (constant_types C_constant XS_constant);
 
-my $types = {map {($_, 1)} qw(IV)};
+my $types = {map {($_, 1)} qw(IV PV)};
 my @names = (qw(MDB_APPEND MDB_APPENDDUP MDB_BAD_RSLOT MDB_CORRUPTED MDB_CREATE
 	       MDB_CURRENT MDB_CURSOR_FULL MDB_DBS_FULL MDB_DUPFIXED
 	       MDB_DUPSORT MDB_FIXEDMAP MDB_INCOMPATIBLE MDB_INTEGERDUP
@@ -745,7 +750,7 @@ my @names = (qw(MDB_APPEND MDB_APPENDDUP MDB_BAD_RSLOT MDB_CORRUPTED MDB_CREATE
 	       MDB_RESERVE MDB_REVERSEDUP MDB_REVERSEKEY MDB_SUCCESS
 	       MDB_TLS_FULL MDB_TXN_FULL MDB_VERSION_FULL MDB_VERSION_MAJOR
 	       MDB_VERSION_MINOR MDB_VERSION_MISMATCH MDB_VERSION_PATCH
-	       MDB_VERSION_STRING MDB_WRITEMAP),
+	       MDB_WRITEMAP),
             {name=>"MDB_FIRST", type=>"IV", macro=>"1"},
             {name=>"MDB_FIRST_DUP", type=>"IV", macro=>"1"},
             {name=>"MDB_GET_BOTH", type=>"IV", macro=>"1"},
@@ -763,14 +768,16 @@ my @names = (qw(MDB_APPEND MDB_APPENDDUP MDB_BAD_RSLOT MDB_CORRUPTED MDB_CREATE
             {name=>"MDB_PREV_NODUP", type=>"IV", macro=>"1"},
             {name=>"MDB_SET", type=>"IV", macro=>"1"},
             {name=>"MDB_SET_KEY", type=>"IV", macro=>"1"},
-            {name=>"MDB_SET_RANGE", type=>"IV", macro=>"1"});
+            {name=>"MDB_SET_RANGE", type=>"IV", macro=>"1"},
+            {name=>"MDB_VERSION_DATE", type=>"PV", macro=>"1"},
+            {name=>"MDB_VERSION_STRING", type=>"PV", macro=>"1"});
 
 print constant_types(), "\n"; # macro defs
-foreach (C_constant ("LMDB", 'constant', 'IV', $types, undef, 3, @names) ) {
+foreach (C_constant ("LMDB_File", 'constant', 'IV', $types, undef, 3, @names) ) {
     print $_, "\n"; # C constant subs
 }
 print "\n#### XS Section:\n";
-print XS_constant ("LMDB", $types);
+print XS_constant ("LMDB_File", $types);
 __END__
    */
 
@@ -806,7 +813,7 @@ __END__
     return constant_15 (aTHX_ name, iv_return);
     break;
   case 16:
-    return constant_16 (aTHX_ name, iv_return);
+    return constant_16 (aTHX_ name, iv_return, pv_return);
     break;
   case 17:
     return constant_17 (aTHX_ name, iv_return);
@@ -826,12 +833,8 @@ __END__
     case 'G':
       if (memEQ(name, "MDB_VERSION_STRIN", 17)) {
       /*                                G      */
-#ifdef MDB_VERSION_STRING
-        *iv_return = MDB_VERSION_STRING;
-        return PERL_constant_ISIV;
-#else
-        return PERL_constant_NOTDEF;
-#endif
+        *pv_return = MDB_VERSION_STRING;
+        return PERL_constant_ISPV;
       }
       break;
     }

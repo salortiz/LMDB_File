@@ -1,5 +1,8 @@
 Revision history for Perl extension LMDB_File.
 
-0.01  Tue Aug  6 11:44:32 2013
+0.01  Mon Aug 19 2013
+	- early testing release, beta?
+
+0.00  Tue Aug  6 11:44:32 2013
 	- original version; created by h2xs 1.23
 
