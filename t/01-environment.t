@@ -13,14 +13,13 @@ throws_ok {
     LMDB::Env->new("NoSuChDiR");
 } qr/No such file/, 'Directory must exists';
 
-my $testdir = 'TestDir';
 my $dir = tempdir('mdbtXXXX', TMPDIR => 1);
 ok(-d $dir, "Created $dir");
+my $testdir = "TestDir";
 
 throws_ok {
     LMDB::Env->new($dir, { flags => MDB_RDONLY });
 } qr/No such/, 'RO must exists';
-#is(scalar @{[ glob "$dir/*" ]}, 0,  'Dir empty');
 
 {
     my $env = new_ok('LMDB::Env' => [ $dir ], "Create Environment");
@@ -124,9 +123,13 @@ throws_ok {
     throws_ok {
 	$env->copy($dir);
     } qr/File exists/, 'An empty one, not myself';
-    mkdir $testdir;
-    is($env->copy($testdir), 0, 'Copied');
-    ok(-e "$testdir/data.mdb", "Data file created");
+
+    SKIP: {
+	skip "Need a local directory", 2 unless(-d $testdir or mkdir $testdir);
+	is($env->copy($testdir), 0, 'Copied');
+	ok(-e "$testdir/data.mdb", "Data file created");
+    }
+    $testdir = $dir unless -s "$testdir/data.mdb";
 
     open(my $fd, '>', "$testdir/other.mdb");
     is($env->copyfd($fd), 0, 'Copied to HANDLE');
@@ -216,9 +219,9 @@ throws_ok {
 
 END {
     unless($ENV{KEEP_TMPS}) {
-	for($dir, $testdir) {
+	for($testdir, $dir) {
 	    unlink glob("$_/*");
-	    rmdir or warn "rm: $!\n";
+	    rmdir or warn "rm $_: $!\n";
 	    warn "Removed $_\n";
 	}
     }
