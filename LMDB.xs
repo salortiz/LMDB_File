@@ -211,12 +211,14 @@ mdb_env_open(env, path, flags, mode)
     POSTCALL:
 	ProcError(RETVAL);
 
+=pod
 int
 mdb_env_copy(env, path)
 	LMDB::Env   env
 	const char *	path
     POSTCALL:
 	ProcError(RETVAL);
+=cut
 
 int
 mdb_env_copyfd(env, fd)
