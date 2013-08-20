@@ -40,7 +40,7 @@ $EXPORT_TAGS{flags} = [
 }
 our @EXPORT_OK = ( @{ $EXPORT_TAGS{'all'} } );
 
-our $VERSION = '0.01';
+our $VERSION = '0.02';
 our $DEBUG = 0;
 
 sub AUTOLOAD {
