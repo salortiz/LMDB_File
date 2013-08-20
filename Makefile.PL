@@ -7,14 +7,24 @@ use Config;
 
 my $LNAME = 'LMDB';
 my $NAME = "${LNAME}_File";
+my ($LIBS) = map { /^LIBS=(.*)$/ && $1 || () } @ARGV;
+my ($INC) = map { /^INC=(.*)/ && $1 || () } @ARGV;
 my $myextlib = '';
 {
-    my @libdata = ExtUtils::Liblist->ext('-llmdb', 0, 'mdb_env_create');
-    my($Head) = grep -f $_, qw(/usr/include/lmdb.h /usr/local/include/lmdb.h);
-    if($Head && $libdata[0]) {
-	warn "Will use SYSTEM lmdb in @{$libdata[4]}\n";
+    $LIBS ||= '-llmdb';
+    my @libdata = ExtUtils::Liblist->ext($LIBS, 0, 'mdb_env_create');
+    my @stdinc = qw(/usr/include /usr/local/include);
+    push @stdinc, $libdata[3] if $libdata[3];
+    my($Head) = grep -f "$_/lmdb.h", @stdinc;
+    if(($INC || $Head) && $libdata[0]) {
+	$INC ||= "-I$Head" if -f "$libdata[3]/lmdb.h";
+	warn "Will use SYSTEM lmdb in $libdata[3]\n";
+	warn "If that path isn't a standard one, you may need to set LD_LIBRARY_PATH!\n"
+	    if($libdata[4][0] =~ /.so/);
+	#LMDB needs pthreads, perl can provide it, but...
+	$LIBS .= ' -lpthread' unless $Config{useithreads} eq 'define';
     } else {
-	warn "Will use my own copy of liblmdb\n";
+	warn "Will use my own copy of liblmdb.\n";
 	$myextlib = 'liblmdb/liblmdb$(LIB_EXT)';
     }
 }
@@ -33,10 +43,11 @@ WriteMakefile(
     OBJECT		=> '$(O_FILES)', # link all the C files too
     ($myextlib ? (
 	MYEXTLIB	=> $myextlib,
-	INC		=> '-I. -I./liblmdb'
+	INC		=> '-I./liblmdb',
+	($Config{useithreads} eq 'define' ? () : (LIBS => '-lpthread'))
 	) : (
-	LIBS		=> ['-llmdb'],
-	INC		=> '-I.'
+	LIBS		=> [$LIBS],
+	INC		=> $INC
 	)
     ),
 );
