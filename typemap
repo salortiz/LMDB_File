@@ -18,30 +18,32 @@ flags_t		T_UV_N
 INPUT
 T_datum
 	if (isdbdint(txn, dbi)) {
-	    IV val = SvIV($arg); 
-	    $var.mv_data = &val; 
-	    $var.mv_size = sizeof(val);
+	    SvIV_please($arg);
+	    $var.mv_data = &(((XPVIV*)SvANY($arg))->xiv_iv);
+	    $var.mv_size = sizeof(MyInt);
 	}
 	else $var.mv_data = MySvPV($arg, $var.mv_size);
 T_keydatum
 	if (isdbkint(txn, dbi)) {
-	    IV val = SvIV($arg); 
-	    $var.mv_data = &val; 
-	    $var.mv_size = sizeof(val);
+	    SvIV_please($arg);
+	    $var.mv_data = &(((XPVIV*)SvANY($arg))->xiv_iv);
+	    $var.mv_size = sizeof(MyInt);
 	}
 	else $var.mv_data = SvPV($arg, $var.mv_size);
 T_datumC
 	if (iscudint(cursor)) {
-	    IV val = SvIV($arg); 
-	    $var.mv_data = &val; 
-	    $var.mv_size = sizeof(val);
+	    SvIV_please($arg);
+	    $var.mv_data = &(((XPVIV*)SvANY($arg))->xiv_iv);
+	    $var.mv_size = sizeof(MyInt);
 	}
 	else $var.mv_data = MySvPV($arg, $var.mv_size);
 T_keydatumC
 	if (iscukint(cursor)) {
-	    IV val = SvIV($arg); 
-	    $var.mv_data = &val; 
-	    $var.mv_size = sizeof(IV);
+	    if(SvOK($arg)) {
+		SvIV_please($arg);
+		$var.mv_data = &(((XPVIV*)SvANY($arg))->xiv_iv);
+	    } else $var.mv_data = (MyInt *)\"\\0\\0\\0\\0\\0\\0\\0\\0\";
+	    $var.mv_size = sizeof(MyInt);
 	}
 	else if(SvOK($arg)) $var.mv_data = SvPV($arg, $var.mv_size);
 T_FD
@@ -64,21 +66,21 @@ T_UV_N
 OUTPUT
 T_datum
 	if(isdbdint(txn, dbi)) {
-	    sv_setiv_mg($arg, *(IV *)$var.mv_data);
+	    sv_setiv_mg($arg, *(MyInt *)$var.mv_data);
 	} else {
 	    sv_setpvn_mg($arg, $var.mv_data, $var.mv_size);
 	    SvUTF8_off($arg);
 	}
 T_datumC
 	if(iscudint(cursor)) {
-	    sv_setiv_mg($arg, *(IV *)$var.mv_data);
+	    sv_setiv_mg($arg, *(MyInt *)$var.mv_data);
 	} else {
 	    sv_setpvn_mg($arg, $var.mv_data, $var.mv_size);
 	    SvUTF8_off($arg);
 	}
 T_keydatum
 	if(isdbkint(txn, dbi)) {
-	    sv_setiv_mg($arg, *(IV *)$var.mv_data);
+	    sv_setiv_mg($arg, *(MyInt *)$var.mv_data);
 	} else {
 	    sv_setpvn_mg($arg, $var.mv_data, $var.mv_size);
 	    SvUTF8_off($arg);
@@ -86,7 +88,7 @@ T_keydatum
 T_keydatumC
 	if(op != MDB_SET) {
 	    if(iscukint(cursor)) {
-		sv_setiv_mg($arg, *(IV *)$var.mv_data);
+		sv_setiv_mg($arg, *(MyInt *)$var.mv_data);
 	    } else {
 		sv_setpvn_mg($arg, $var.mv_data, $var.mv_size);
 		SvUTF8_off($arg);
