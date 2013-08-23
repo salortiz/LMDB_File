@@ -176,6 +176,7 @@ sub _prune {
 	last if $$rel == $$self;
     }
     warn "LMDB::Txn: $$self finalized\n" if $DEBUG > 1;
+    $$self = 0;
 }
 
 sub abort {
@@ -188,8 +189,8 @@ sub abort {
 
 sub commit {
     my $self = shift;
-    croak("Terminated transaction") unless $Txns{$$self};
-    croak("Not an active transaction") unless $Txns{$$self}{Active};
+    Carp::croak("Terminated transaction") unless $Txns{$$self};
+    Carp::croak("Not an active transaction") unless $Txns{$$self}{Active};
     $self->_commit;
     warn "LMDB::Txn $$self commited\n" if $DEBUG;
     $self->_prune;
@@ -377,7 +378,7 @@ sub FETCH {
     return $data;
 }
 
-*STORE = \&LMDB::put;
+*STORE = \&put;
 
 sub UNTIE {
     my $self = shift;
@@ -426,7 +427,7 @@ sub NEXTKEY {
     if($res == MDB_NOTFOUND()) {
 	return;
     }
-    return $key;
+    return wantarray ? ($key, $data) : $key;
 }
 
 # Autoload methods go after =cut, and are processed by the autosplit program.
