@@ -1,13 +1,17 @@
 #!perl
-use Test::More tests => 106;
+use Test::More tests => 111;
 use Test::Exception;
 use strict;
 use warnings;
 use utf8;
 
 use File::Temp qw(tempdir);
-
 use LMDB_File qw(:envflags :cursor_op);
+
+if($ENV{LANG} && $ENV{LANG} !~ /^en/) {
+    # The tests needs 'C' LC_MESSAGES
+    eval { require POSIX; POSIX::setlocale(POSIX::LC_MESSAGES(), 'C'); }
+}
 
 throws_ok {
     LMDB::Env->new("NoSuChDiR");
@@ -98,6 +102,7 @@ throws_ok {
 	}
     }
     is($c, 26, 'All in');
+
     # Check data in random HASH order
     $c = 5; # Don't be verbose
     while(my($k, $v) = each %data) {
@@ -208,11 +213,17 @@ throws_ok {
     is($h->{EEEE}, 'Datum #5', 'FETCH');
     is($h->{ABCS}, undef, 'No data');
     my @keys = keys %{$h};
-    is(scalar @keys, 26, 'Correct size');
+    is(scalar @keys, 26, 'Size');
+    is_deeply(['A'..'Z'], [ map substr($_, 0, 1), @keys ], 'All in');
 
     ok(exists $h->{ZZZZ}, 'Exists');
     is(delete $h->{ZZZZ}, 'Datum #26', 'Deleted #26');
     ok(!exists $h->{ZZZZ}, 'Really deleted');
+    is(scalar keys %$h, 25, 'Reduced');
+
+    is($h->{ZZZZ} = 'New data', 'New data', 'STORE');
+    is(scalar keys %$h, 26, 'Stored');
+    is($h->{ZZZZ}, 'New data', 'Really stored');
 
     untie %$h;
 }
