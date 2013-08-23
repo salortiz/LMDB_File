@@ -1,5 +1,12 @@
 Revision history for Perl extension LMDB_File.
 
+0.03  Fru Aug 23 2013
+    - Fix MDB_INTEGERKEY handling, now works
+    - Reimplement mdb_env_copy to avoid O_DIRECT issues in unsupported filesystems.
+    - Fix STORE when using tie, thanks to Mark Zealey for the report.
+    - Avoid warn "undefined" for flags.
+    - Use proper locale when testing, should fix Alexandr Ciornii's
+      failed tests reports.
 0.02  Tue Aug 20 2013
     - Fix build with non threaded Perl.
     - Skip a test when can't create local directory.
