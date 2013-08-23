@@ -20,6 +20,8 @@
 
 #define	F_ISSET(w, f)	(((w) & (f)) == (f))
 
+typedef I32 MyInt;
+
 static bool
 isdbkint(MDB_txn *txn, MDB_dbi dbi)
 {
@@ -333,8 +335,8 @@ int
 mdb_txn_begin(env, parent, flags, txn)
 	LMDB::Env   env
 	TxnOrNull   parent
-	unsigned int	flags
-	LMDB::Txn   	&txn = NO_INIT
+	flags_t	    flags
+	LMDB::Txn   &txn = NO_INIT
     POSTCALL:
 	ProcError(RETVAL);
     OUTPUT:
@@ -396,7 +398,7 @@ mdb_cursor_dbi(cursor)
 int
 mdb_cursor_del(cursor, flags)
 	LMDB::Cursor	cursor
-	unsigned int	flags
+	flags_t		flags
 
 int
 mdb_cursor_get(cursor, key, data, op)
@@ -404,7 +406,12 @@ mdb_cursor_get(cursor, key, data, op)
 	DBKC	&key	
 	DBDC	&data
 	MDB_cursor_op	op
+    PREINIT:
+	dMY_MULTICALL;
+    INIT:
+	MY_PUSH_MULTICALL(mdb_cursor_txn(cursor), mdb_cursor_dbi(cursor));
     POSTCALL:
+	MY_POP_MULTICALL;
 	ProcError(RETVAL);
     OUTPUT:
 	key
@@ -423,8 +430,13 @@ mdb_cursor_put(cursor, key, data, flags)
 	LMDB::Cursor	cursor
 	DBKC	&key
 	DBDC	&data
-	unsigned int	flags
+	flags_t	flags
+    PREINIT:
+	dMY_MULTICALL;
+    INIT:
+	MY_PUSH_MULTICALL(mdb_cursor_txn(cursor), mdb_cursor_dbi(cursor));
     POSTCALL:
+	MY_POP_MULTICALL;
 	ProcError(RETVAL);
 
 int
