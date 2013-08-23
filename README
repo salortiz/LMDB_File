@@ -27,9 +27,10 @@ on your system:
       from the git repository that Makefile.PL will compile and use for static
       linking if the library and its header file isn't found installed.
       
-    * To run the test harness for this module, you must make sure that the
-      directory where you have untarred this module is NOT a network
-      drive, e.g. NFS or AFS.
+    * To run the test harness for this module:
+      - You must make sure that the directory where you have untarred this module
+      is NOT a network drive, e.g. NFS or AFS.
+      - You need the Test::Exception module installed.
 
 INSTALLATION
 
