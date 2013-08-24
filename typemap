@@ -65,19 +65,9 @@ T_UV_N
 ####################################################################################
 OUTPUT
 T_datum
-	if(isdbdint(txn, dbi)) {
-	    sv_setiv_mg($arg, *(MyInt *)$var.mv_data);
-	} else {
-	    sv_setpvn_mg($arg, $var.mv_data, $var.mv_size);
-	    SvUTF8_off($arg);
-	}
+	sv_setstatic(aTHX_ $arg, &$var, isdbdint(txn,dbi));
 T_datumC
-	if(iscudint(cursor)) {
-	    sv_setiv_mg($arg, *(MyInt *)$var.mv_data);
-	} else {
-	    sv_setpvn_mg($arg, $var.mv_data, $var.mv_size);
-	    SvUTF8_off($arg);
-	}
+	sv_setstatic(aTHX_ $arg, &$var, iscudint(cursor));
 T_keydatum
 	if(isdbkint(txn, dbi)) {
 	    sv_setiv_mg($arg, *(MyInt *)$var.mv_data);
