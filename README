@@ -1,4 +1,4 @@
-LMDB_File version 0.01
+LMDB_File version 0.03
 ======================
 
 LMDB_File is a Perl wrapper around the OpenLDAP's LMDB (Lightning
