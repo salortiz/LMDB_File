@@ -107,19 +107,6 @@ sub BeginTxn {
     return LMDB::Txn->new($self, $tflags);
 }
 
-# Local implementation to avoid use of O_DIRECT
-my $CRMASK = Fcntl::O_WRONLY()|Fcntl::O_CREAT()|Fcntl::O_EXCL();
-sub copy {
-    my ($self, $dir) = @_;
-    sysopen(my $fd, sprintf("%s/data.mdb", $dir), $CRMASK, 0666)
-	or goto Error;
-    my $res = $self->copyfd($fd);
-    close($fd) and return $res;
-    Error:
-    Carp::croak("$!") if $LMDB_File::die_on_err;
-    return $!;
-}
-
 package LMDB::Txn;
 
 our %Txns;

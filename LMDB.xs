@@ -74,9 +74,9 @@ sv_setstatic(pTHX_ SV *const sv, MDB_val *data, bool isint)
 
 	    SvCUR_set(sv, data->mv_size);
 	    SvPV_set(sv, data->mv_data);
-	    SvLEN_set(sv, 0); /* This pointer is mine */
+	    SvLEN_set(sv, 0); /* Tell Perl not to free memory */
 	    SvPOK_only(sv);
-	    SvREADONLY_on(sv);
+	    /* SvREADONLY_on(sv); */
 	} else {
 	    sv_setpvn_mg(sv, data->mv_data, data->mv_size);
 	    SvUTF8_off(sv);
@@ -250,14 +250,12 @@ mdb_env_open(env, path, flags, mode)
     POSTCALL:
 	ProcError(RETVAL);
 
-=pod
 int
 mdb_env_copy(env, path)
 	LMDB::Env   env
 	const char *	path
     POSTCALL:
 	ProcError(RETVAL);
-=cut
 
 int
 mdb_env_copyfd(env, fd)
