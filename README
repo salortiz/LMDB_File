@@ -1,4 +1,4 @@
-LMDB_File version 0.03
+LMDB_File version 0.04
 ======================
 
 LMDB_File is a Perl wrapper around the OpenLDAP's LMDB (Lightning
@@ -20,7 +20,7 @@ on your system:
 
     * A working C compiler.
 
-    * LMDB Version 0.9.7 or greater.
+    * LMDB Version 0.9.8 or greater.
 
       NOTE: At this time there is not yet an official release of the lmdb
       library, so this package includes a recent copy of the source code
