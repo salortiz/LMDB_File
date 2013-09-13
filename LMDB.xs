@@ -27,7 +27,7 @@ static bool
 isdbkint(MDB_txn *txn, MDB_dbi dbi)
 {
     unsigned int flags = 0;
-    mdb_dbi_flags(mdb_txn_env(txn), dbi, &flags);
+    mdb_dbi_flags(txn, dbi, &flags);
     return F_ISSET(flags, MDB_INTEGERKEY);
 }
 #define iscukint(c) isdbkint(mdb_cursor_txn(c), mdb_cursor_dbi(c))
@@ -36,7 +36,7 @@ static bool
 isdbdint(MDB_txn *txn, MDB_dbi dbi)
 {
     unsigned int flags = 0;
-    mdb_dbi_flags(mdb_txn_env(txn), dbi, &flags);
+    mdb_dbi_flags(txn, dbi, &flags);
     return F_ISSET(flags, MDB_DUPSORT|MDB_INTEGERDUP);
 }
 
@@ -66,15 +66,21 @@ sv_setstatic(pTHX_ SV *const sv, MDB_val *data, bool isint)
     if(isint)
 	    sv_setiv_mg(sv, *(MyInt *)data->mv_data);
     else {
-	SV_CHECK_THINKFIRST_COW_DROP(sv);
-	SvUPGRADE(sv, SVt_PV);
-	if (SvPVX_const(sv))
-	    SvPV_free(sv);
+	if(1) {
+	    SV_CHECK_THINKFIRST_COW_DROP(sv);
+	    SvUPGRADE(sv, SVt_PV);
+	    if (SvPVX_const(sv))
+		SvPV_free(sv);
 
-	SvCUR_set(sv, data->mv_size);
-	SvPV_set(sv, data->mv_data);
-	SvLEN_set(sv, 0); /* This pointer is mine */
-	SvPOK_only(sv);
+	    SvCUR_set(sv, data->mv_size);
+	    SvPV_set(sv, data->mv_data);
+	    SvLEN_set(sv, 0); /* This pointer is mine */
+	    SvPOK_only(sv);
+	    SvREADONLY_on(sv);
+	} else {
+	    sv_setpvn_mg(sv, data->mv_data, data->mv_size);
+	    SvUTF8_off(sv);
+	}
     }
 }
 
@@ -290,7 +296,7 @@ mdb_env_info(env)
 	RETVAL
 
 int
-mdb_env_sync(env, force)
+mdb_env_sync(env, force=0)
 	LMDB::Env   env
 	int	force
 
@@ -523,8 +529,7 @@ mdb_dbi_flags(txn, dbi, flags)
 	LMDB::Txn   txn
 	LMDB	dbi
 	unsigned int &flags = NO_INIT
-    CODE:
-	RETVAL = mdb_dbi_flags(mdb_txn_env(txn), dbi, &flags);
+    POSTCALL:
 	ProcError(RETVAL);
     OUTPUT:
 	RETVAL
