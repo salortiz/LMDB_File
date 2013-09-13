@@ -40,7 +40,7 @@ $EXPORT_TAGS{flags} = [
 }
 our @EXPORT_OK = ( @{ $EXPORT_TAGS{'all'} } );
 
-our $VERSION = '0.03';
+our $VERSION = '0.04';
 our $DEBUG = 0;
 
 sub AUTOLOAD {
@@ -116,13 +116,13 @@ sub copy {
     my $res = $self->copyfd($fd);
     close($fd) and return $res;
     Error:
-    Carp::croak("$!") if($LMDB_File::die_on_err);
+    Carp::croak("$!") if $LMDB_File::die_on_err;
     return $!;
 }
 
 package LMDB::Txn;
 
-my %Txns;
+our %Txns;
 my %Cursors;
 # All LMDB Transactions are usable only in the thread that create it
 sub CLONE_SKIP { 1; }
@@ -153,7 +153,7 @@ sub SubTxn {
 
 sub DESTROY {
     my $self = shift;
-    my $txp = $Txns{$$self};
+    my $txp = $Txns{$$self} or return;
     if($txp->{Active}) {
 	if(!$txp->{RO} && $txp->{AC}) {
 	    warn "LMDB: Destroying an active transaction, commiting $$self...\n"
@@ -181,6 +181,7 @@ sub _prune {
 
 sub abort {
     my $self = shift;
+    Carp::carp("Terminated transaction") unless $Txns{$$self};
     return unless $Txns{$$self}; # Ignore unless active
     $self->_abort;
     warn "LMDB::Txn $$self aborted\n" if $DEBUG;
@@ -194,6 +195,16 @@ sub commit {
     $self->_commit;
     warn "LMDB::Txn $$self commited\n" if $DEBUG;
     $self->_prune;
+}
+
+sub Flush {
+    my $self = shift;
+    my $td = $Txns{$$self} or Carp::croak("Terminated transaction");
+    Carp::croak("Not an active transaction") unless $td->{Active};
+    $self->_commit;
+    _begin($td->{Env}, undef, $td->{RO}, my $ntxn);
+    Carp::croak("Can't recreate Txn") unless $$ntxn == $$self;
+    $$ntxn = 0;
 }
 
 sub reset {
@@ -384,7 +395,6 @@ sub UNTIE {
     my $self = shift;
     my $txn = $self->[0];
     return unless($txn && ($Txns{ $$txn } || undef($self->[0])));
-    #$txn->commit;
     delete $self->[4]; # Free dcmp callback
     delete $self->[3]; # Free cursor
     delete $self->[2]; # Free cmp callback
@@ -430,8 +440,6 @@ sub NEXTKEY {
     return wantarray ? ($key, $data) : $key;
 }
 
-# Autoload methods go after =cut, and are processed by the autosplit program.
-
 1;
 __END__
 
@@ -441,9 +449,9 @@ LMDB_File - Tie to LMDB (OpenLDAP's Lightning Memory-Mapped Database)
 
 =head1 SYNOPSIS
 
+  # Simple TIE interface, when your in a rush
   use LMDB_File;
 
-  # Simple TIE interface
   $db = tie %hash, 'LMDB_File', $path;
 
   $hash{$key} = $value;
@@ -451,6 +459,42 @@ LMDB_File - Tie to LMDB (OpenLDAP's Lightning Memory-Mapped Database)
   each %hash;
   keys %hash;
   values %hash;
+  ...
+
+
+  # The full power
+  use LMDB_File qw(:flags
+
+  $env = LMDB::Env->new($path, {
+      mapsize => 100 * 1024 * 1024 * 1024, # Plenty space, don't worry
+      maxdbs => 20, # Some databases
+      mode   => 0600,
+      # More options
+  });
+
+  $txn = $env->BeginTxn(); # Open a new transaction
+
+  $DB = $txn->OpenDB( {    # Create a new database
+      dbname => $dbname,
+      flags => MDB_CREATE
+  });
+
+  $DB->put($key, $value);  # Simple put
+  $value = $DB->get($key); # Simple get
+
+  $DB->put($key, $value, MDB_NOOVERWITE); # Don't replace existing value
+
+  # Work with cursors
+  $cursor => $DB->OpenCursor;
+
+  $cursor->get($key, $value, MDB_FIRST); # First key/value in DB
+  $cursor->get($key, $value, MDB_NEXT);  # Next key/value in DB
+  $cursor->get($key, $value, MDB_LAST);  # Last key/value in DB
+  $cursor->get($key, $value, MDB_PREV);  # Previous key/value in DB
+
+  $DB->set_compare( sub { lc($a) cmp lc($b) } ); # Use my own key comparison function
+
+
 
 =head1 DESCRIPTION
 
@@ -663,8 +707,8 @@ Copy an LMDB environment to the specified HANDLE.
 
 =item $status = $Env->stat
 
-Returns a HASH reference with statistics for a database in the environment, 
-I<$status>, with the following keys:
+Returns a HASH reference with statistics for the main, unnamed, database
+in the environment, the HASH contains the following keys:
 
 =over
 
@@ -956,15 +1000,34 @@ As above, but for sorted duplicated data.
 
 =item $Cursor = $DB->Cursor
 
-Creates a new LMDB::Cursor object to work in the Data Base, see L</LMDB::Cursor>
+Creates a new LMDB::Cursor object to work in the database, see L</LMDB::Cursor>
 
 =item $txn = $DB->Txn
 
-Returns the transaction that opened this Data Base
+Returns the transaction that opened this database
 
-=item $DB->flags
+=item $flags = $DB->flags
 
-=item $DB->status
+Retrieve the DB flags for this database.
+
+=item $status = $DB->stat
+
+Returns a HASH reference with statistics for the database, the hash will contains
+the following keys:
+
+=over
+
+=item B<psize> Size of a database page.
+
+=item B<depth> Depth (height) of the B-Tree
+
+=item B<branch_pages> Number of internal (non-leaf) pages
+
+=item B<overflow_pages> Number of overflow pages
+
+=item B<entries> Number of data items
+
+=back
 
 =back
 
@@ -1093,6 +1156,10 @@ grouped by its tag.
  MDB_NOOVERWRITE MDB_NODUPDATA MDB_CURRENT MDB_RESERVE
  MDB_APPEND MDB_APPENDDUP MDB_MULTIPLE
 
+=head2 All flags C<:flags>
+
+All of C<:envflags>, C<:dbflags> and C<:writeflags>
+
 =head2 Cursor operations C<:cursor_op>
 
  MDB_FIRST MDB_FIRST_DUP MDB_GET_BOTH MDB_GET_BOTH_RANGE
@@ -1139,21 +1206,22 @@ When you has an Environment object I<$Env> at hand.
 
 =item tie %hash, $DB
 
-When you has an opened DataBase.
+When you has an opened database.
 
 =back
 
 The first two forms will create and/or open the Environment at I<$path>,
-creates a new Transaction and open a DataBase in the Transaction.
+creates a new Transaction and open a database in the Transaction.
 
 If provided, I<$options> must be a HASH reference with options for both
-the Environment and the DataBase.
+the Environment and the database.
 
-Valid keys for I<$option> are any of the described above for B<ENVOPTIONS>
+Valid keys for I<$option> are any described above for B<ENVOPTIONS>
 and B<DBOPTIONS>.
 
 In the case that you has already created a transaction or an environment,
-you can provide a HASH reference in B<DBOPTIONS>.
+you can provide a HASH reference in B<DBOPTIONS> for options exclusively
+for the database.
 
 =head1 AUTHOR
 
