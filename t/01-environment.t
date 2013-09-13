@@ -1,5 +1,5 @@
 #!perl
-use Test::More tests => 111;
+use Test::More tests => 119;
 use Test::Exception;
 use strict;
 use warnings;
@@ -35,10 +35,6 @@ throws_ok {
     is($dumy, 0x30000000, 'Flags setted'); # Using private
     ok($env->id, 'Env ID: ' . $env->id);
 
-    #throws_ok {
-    #	LMDB::Env->new($dir);
-    #} qr/ready/, 'Already opened in this proccess';
-
     # Basic Environment info
     isa_ok(my $envinfo = $env->info, 'HASH', 'Get Info');
     ok(exists $envinfo->{$_}, "Info has $_")
@@ -57,18 +53,19 @@ throws_ok {
     is($stat->{$_}, 0, "$_ = 0, empty")
 	for qw(depth branch_pages leaf_pages overflow_pages entries);
 
+
+    # Check Env refcounts
     is(Internals::SvREFCNT($$env), 1, 'Env Inactive');
     isa_ok(my $txn = $env->BeginTxn, 'LMDB::Txn', 'Transaction');
     is(Internals::SvREFCNT($$env), 2, 'Env Active');
-
+    throws_ok {
+	$txn->OpenDB('NAMED');
+    } qr/limit reached/, 'No named allowed';
     {
     	isa_ok(my $sub = $env->BeginTxn, 'LMDB::Txn', 'Subtransaction');
 	is(Internals::SvREFCNT($$env), 3, 'Env Active');
     }
-    throws_ok {
-	$txn->OpenDB('NAMED');
-    } qr/limit reached/, 'No named allowed';
-
+    is(Internals::SvREFCNT($$env), 2, 'Back normal');
     {
 	isa_ok(my $eclone = $txn->env, 'LMDB::Env', 'Got Env');
 	is($env->id, $eclone->id, "The same ID ($$env)");
@@ -76,6 +73,16 @@ throws_ok {
 	is(Internals::SvREFCNT($$env),  3, 'Refcounted');
     }
     is(Internals::SvREFCNT($$env), 2, 'Back normal');
+    lives_ok {
+	$txn->commit;
+	is(Internals::SvREFCNT($$env), 1, 'Env free');
+    } 'Null Commit';
+    throws_ok {
+	$txn->commit;
+    } qr/Terminated/, 'Terminated';
+    is($$txn, 0, 'Nullified');
+
+    ok($txn = $env->BeginTxn, 'Recreated');
 
     # Open main dbi
     isa_ok(my $DB = $txn->OpenDB, 'LMDB_File', 'DBI created');
@@ -119,6 +126,12 @@ throws_ok {
     throws_ok {
 	$txn->OpenDB;
     } qr/Not an active/, 'Commit finalized txn';
+    lives_ok {
+	my $warn;
+	$SIG{__WARN__} = sub { $warn = shift };
+	$txn->abort;
+	like($warn, qr/Terminated/, 'Warning emited');
+    } 'Blessed';
     is(Internals::SvREFCNT($$env), 1, 'Env Inactive');
 
     # Test copy method
