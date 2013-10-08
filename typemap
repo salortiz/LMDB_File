@@ -7,7 +7,6 @@ LMDB::Cursor	T_PTROBJ
 LMDB		T_OPAQUE
 DBD		T_datum
 DBK		T_keydatum
-DBDC		T_datumC
 DBKC		T_keydatumC
 MDB_cursor_op	T_IV
 mdb_filehandle_t  T_FD 
@@ -17,28 +16,21 @@ flags_t		T_UV_N
 
 INPUT
 T_datum
-	if (isdbdint(txn, dbi)) {
+	if (ISDBDINT) {
 	    SvIV_please($arg);
 	    $var.mv_data = &(((XPVIV*)SvANY($arg))->xiv_iv);
 	    $var.mv_size = sizeof(MyInt);
 	}
 	else $var.mv_data = MySvPV($arg, $var.mv_size);
 T_keydatum
-	if (isdbkint(txn, dbi)) {
+	if (ISDBKINT) {
 	    SvIV_please($arg);
 	    $var.mv_data = &(((XPVIV*)SvANY($arg))->xiv_iv);
 	    $var.mv_size = sizeof(MyInt);
 	}
 	else $var.mv_data = SvPV($arg, $var.mv_size);
-T_datumC
-	if (iscudint(cursor)) {
-	    SvIV_please($arg);
-	    $var.mv_data = &(((XPVIV*)SvANY($arg))->xiv_iv);
-	    $var.mv_size = sizeof(MyInt);
-	}
-	else $var.mv_data = MySvPV($arg, $var.mv_size);
 T_keydatumC
-	if (iscukint(cursor)) {
+	if (ISDBKINT) {
 	    if(SvOK($arg)) {
 		SvIV_please($arg);
 		$var.mv_data = &(((XPVIV*)SvANY($arg))->xiv_iv);
@@ -65,11 +57,9 @@ T_UV_N
 ####################################################################################
 OUTPUT
 T_datum
-	sv_setstatic(aTHX_ $arg, &$var, isdbdint(txn,dbi));
-T_datumC
-	sv_setstatic(aTHX_ $arg, &$var, iscudint(cursor));
+	sv_setstatic(aTHX_ $arg, &$var);
 T_keydatum
-	if(isdbkint(txn, dbi)) {
+	if(ISDBKINT) {
 	    sv_setiv_mg($arg, *(MyInt *)$var.mv_data);
 	} else {
 	    sv_setpvn_mg($arg, $var.mv_data, $var.mv_size);
@@ -77,7 +67,7 @@ T_keydatum
 	}
 T_keydatumC
 	if(op != MDB_SET) {
-	    if(iscukint(cursor)) {
+	    if(ISDBKINT) {
 		sv_setiv_mg($arg, *(MyInt *)$var.mv_data);
 	    } else {
 		sv_setpvn_mg($arg, $var.mv_data, $var.mv_size);
