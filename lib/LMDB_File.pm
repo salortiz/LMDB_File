@@ -85,13 +85,22 @@ sub new {
     return $self;
 }
 
+sub Clean {
+    my $self = shift;
+    my $txl = $Envs{ $$self }{Txns} or return;
+    if(@$txl) {
+	Carp::carp("LMDB: Aborting $#$txl transactions in $$self.");
+	$txl->[$#$txl]->abort;
+    }
+    $Envs{$$self}{Txns} = [];
+}
+
 sub DESTROY {
     my $self = shift;
-    my $txl = $Envs{$$self}{Txns} or return;
-    if(my $act = $txl->[$#$txl]) {
-	warn "LMDB: Destroying an active environment, aborted $$act!\n";
-	$act->abort;
-	undef $Envs{$$self}{Txns};
+    my $txl = $Envs{ $$self }{Txns} or return;
+    if(@$txl) {
+	Carp::carp("LMDB: OOPS! Destroying an active environment!");
+	$Envs{$$self}{Txns} = undef;
     }
     $self->close;
     delete $Envs{$$self};
@@ -102,7 +111,8 @@ sub BeginTxn {
     my $self = shift;
     $self->get_flags(my $eflags);
     my $tflags = shift || ($eflags & LMDB_File::MDB_RDONLY());
-    my $txl = $Envs{$$self}{Txns};
+    my $txl = $Envs{ $$self }{Txns};
+    warn "In BT $$self($$), deep: ", scalar(@$txl), "\n" if $DEBUG;
     return $txl->[0]->SubTxn($tflags) if @$txl;
     return LMDB::Txn->new($self, $tflags);
 }
@@ -117,13 +127,13 @@ sub CLONE_SKIP { 1; }
 sub new {
     my ($parent, $env, $tflags) = @_;
     my $txl = $Envs{$$env}{Txns};
-    Carp::croak("Transaction active, shold be subtransaction")
+    Carp::croak("Transaction active, should be subtransaction")
 	if !ref($parent) && @$txl;
     _begin($env, ref($parent) && $parent, $tflags, my $self);
     return unless $self;
     $Txns{$$self} = {
 	Active => 1,
-	Env => $env,
+	Env => $env, # A transaction references the environment
 	RO  => $tflags & LMDB_File::MDB_RDONLY(),
     };
     unshift @$txl, $self;
@@ -156,20 +166,27 @@ sub DESTROY {
 
 sub _prune {
     my $self = shift;
-    my $txl = $Envs{ $self->_env }{Txns};
+    my $eid = $self->_env; # Avoid recreate environment
+    my $txl = $Envs{ $eid }{Txns};
     while(my $rel = shift @$txl) {
 	delete $Cursors{$_} for keys %{ $Txns{$$rel}{Cursors} };
+	$Txns{$$rel}{Env} = undef; # Free environment
 	delete $Txns{$$rel};
 	last if $$rel == $$self;
     }
-    warn "LMDB::Txn: $$self finalized\n" if $DEBUG > 1;
+    $Envs{ $eid }{Txns} = [] unless scalar(@$txl); # Paranoia
+    warn "LMDB::Txn: $$self($$) finalized in $eid, deep: ", scalar(@$txl), "\n"
+	if $DEBUG > 1;
     $$self = 0;
 }
 
 sub abort {
     my $self = shift;
-    Carp::carp("Terminated transaction") unless $Txns{$$self};
-    return unless $Txns{$$self}; # Ignore unless active
+    unless($Txns{ $$self }) {
+	Carp::carp("Terminated transaction");
+	return;
+    }
+    return unless $Txns{$$self}{Active}; # Ignore unless active
     $self->_abort;
     warn "LMDB::Txn $$self aborted\n" if $DEBUG;
     $self->_prune;
@@ -189,6 +206,7 @@ sub Flush {
     my $td = $Txns{$$self} or Carp::croak("Terminated transaction");
     Carp::croak("Not an active transaction") unless $td->{Active};
     $self->_commit;
+    # This depends on malloc order, beware!
     _begin($td->{Env}, undef, $td->{RO}, my $ntxn);
     Carp::croak("Can't recreate Txn") unless $$ntxn == $$self;
     $$ntxn = 0;
@@ -196,17 +214,17 @@ sub Flush {
 
 sub reset {
     my $self = shift;
-    Carp::croak("Not an active transaction") unless $Txns{$$self};
-    $self->_reset if $Txns{$$self}{Active};
-    $Txns{$$self}{Active} = 0;
+    my $td = $Txns{ $$self } or Carp::croak("Not an active transaction");
+    $self->_reset if $td->{Active};
+    $td->{Active} = 0;
 }
 
 sub renew {
     my $self = shift;
-    Carp::croak("Not an active transaction") unless $Txns{$$self};
-    $self->_reset if $Txns{$$self}{Active};
+    my $td = $Txns{$$self} or Carp::croak("Not an active transaction");
+    $self->_reset if $td->{Active};
     $self->_renew;
-    $Txns{$$self}{Active} = 1;
+    $td->{Active} = 1;
 }
 
 sub OpenDB {
@@ -222,22 +240,22 @@ sub env {
 
 sub AutoCommit {
     my $self = shift;
-    Carp::croak("Terminated transaction") unless $Txns{$$self};
-    my $prev = $Txns{$$self}{AC};
-    $Txns{$$self}{AC} = shift if(@_);
+    my $td = $Txns{$$self} or Carp::croak("Terminated transaction");
+    my $prev = $td->{AC};
+    $td->{AC} = shift if(@_);
     return $prev;
 }
 
 package LMDB::Cursor;
 
-sub _new {
-    my ($proto, $txn, $dbi) = @_;
-    LMDB::Cursor::open($txn, $dbi, my $self);
-    return unless $self;
-    $Txns{$$txn}{Cursors}{$$self} = 1;
-    $Cursors{$$self} = $txn;
-    warn "Cursor opened for #".ord($dbi)."\n" if $DEBUG;
-    return $self;
+sub get {
+    LMDB_File::_chkalive($Cursors{${$_[0]}});
+    goto &_get;
+}
+
+sub put {
+    LMDB_File::_chkalive($Cursors{${$_[0]}});
+    goto &_put;
 }
 
 sub DESTROY {
@@ -250,9 +268,10 @@ sub DESTROY {
 }
 
 package LMDB_File;
+sub CLONE_SKIP { 1; }
 
-our $_dcmp_cv;
-our $_cmp_cv;
+our $die_on_err = 1;
+our $last_err = 0;
 
 my $dbflmask = do {
     no strict 'refs';
@@ -282,8 +301,8 @@ sub _chkalive {
     my $self = shift;
     my $txn = $self->[0];
     Carp::croak("Not an active transaction")
-	unless($txn && ($Txns{ $$txn } || undef($self->[0])));
-    $_cmp_cv = $self->[2]; $_dcmp_cv = $self->[4];
+	unless($txn && ($Txns{ $$txn } || undef $self->[0]));
+    _setcurrent($self);
     return $txn, $self->[1];
 }
 
@@ -308,9 +327,11 @@ sub put {
 }
 
 sub get {
-    my $self = shift;
-    my $key = shift;
+    my $self = $_[0];
+    my $key = $_[1];
     warn "get: '$key'\n" if $DEBUG > 2;
+    return _get(_chkalive($self), $key, $_[2]) if @_ > 2;
+    local $die_on_err = 0;
     _get(_chkalive($self), $key, my $data);
     return $data;
 }
@@ -326,7 +347,7 @@ sub del {
 
 sub set_dupsort {
     my $self = shift;
-    $self->[4] = shift;
+    $self->[3] = shift;
 }
 
 sub set_compare {
@@ -335,15 +356,20 @@ sub set_compare {
 }
 
 sub Cursor {
-    LMDB::Cursor->_new(_chkalive(shift));
+    my $DB = shift;
+    my ($txn, $dbi) = _chkalive($DB);
+    LMDB::Cursor::open($txn, $dbi, my $cursor);
+    return unless $cursor;
+    $Txns{$$txn}{Cursors}{$$cursor} = 1;
+    $Cursors{$$cursor} = $DB;
+    warn "Cursor opened for #".ord($dbi)."\n" if $DEBUG;
+    return $cursor;
 }
 
 sub Txn {
     $_[0][0];
 }
 
-our $die_on_err = 1;
-our $last_err = 0;
 
 sub TIEHASH {
     my $proto = shift;
@@ -370,7 +396,7 @@ sub FETCH {
     my ($data, $res);
     {
 	local $die_on_err = 0;
-	$res = _get(_chkalive($self), $key,$data);
+	$res = _get(_chkalive($self), $key, $data);
     }
     croak($@) if $res && $res != MDB_NOTFOUND() && $die_on_err;
     return $data;
@@ -382,9 +408,9 @@ sub UNTIE {
     my $self = shift;
     my $txn = $self->[0];
     return unless($txn && ($Txns{ $$txn } || undef($self->[0])));
-    delete $self->[4]; # Free dcmp callback
-    delete $self->[3]; # Free cursor
     delete $self->[2]; # Free cmp callback
+    delete $self->[3]; # Free dcmp callback
+    delete $self->[4]; # Free cursor
 }
 
 sub SCALAR {
@@ -411,20 +437,27 @@ sub DELETE {
 
 sub FIRSTKEY {
     my $self = shift;
-    $self->[3] = $self->Cursor;
+    $self->[4] = $self->Cursor;
     $self->NEXTKEY;
 }
 
 sub NEXTKEY {
     my($self, $key) = @_;
     my $op = defined($key) ? MDB_NEXT() : MDB_FIRST() ;
-    #warn "In NK: $op '$key'\n";
     local $die_on_err = 0;
-    my $res = $self->[3]->get($key, my $data, $op);
+    my $res = $self->[4]->get($key, my $data, $op);
     if($res == MDB_NOTFOUND()) {
 	return;
     }
     return wantarray ? ($key, $data) : $key;
+}
+
+sub ReadMode {
+    my $self = shift;
+    _chkalive($self);
+    my $cm = $self->[5];
+    $self->[5] = shift if @_;
+    $cm;
 }
 
 1;
@@ -550,7 +583,7 @@ C<mdb_env_create> and C<mdb_env_open> functions.
 I<$path> is the directory in which the database files reside. This directory
 must already exists and should be writable.
 
-B<ENVOPTIONS>, if provided, must be a HASH Reference with any of the following
+C<ENVOPTIONS>, if provided, must be a HASH Reference with any of the following
 options:
 
 =over
@@ -977,13 +1010,91 @@ As above, but for sorted duplicated data.
 
 =back
 
+=item $DB->get ( $key, $data )
+
 =item $data = $DB->get ( $key )
 
-=item $DB->del ( $key [, $data ] ) 
+Get items from a database.
+
+This method retrieves key/data pairs from the database.
+
+If the database supports duplicate keys (#MDB_DUPSORT) then the
+first data item for the key will be returned. Retrieval of other
+items requires the use of the C<< LMBD::Cursor->get() >> method.
+
+The two-arguments form, closer to the C API, returns in the provided argument
+I<$data> the value associated with I<$key> in the database if it exists or reports
+an error if not.
+
+In the simpler, more "perlish" one-argument form, the method returns the value
+associated with I<$key> in the database or C<undef> if no such value exists.
+
+This form is implemented by locally setting $die_on_err to FALSE.
+
+=item $DB->ReadMode ( MODE )
+
+This method allows you to modify the behavior of "get" (read) operations on
+the database.
+
+The C documentation for the C<mdb_get> function states that:
+
+  The memory pointed to by the returned values is owned by the
+  database. The caller need not dispose of the memory, and may not
+  modify it in any way. For values returned in a read-only transaction
+  any modification attempts will cause a SIGSEGV.
+
+So this module implements two modes of operation for its "get" methods 
+and you can select between them with this method.
+
+When MODE is 0 (or any FALSE value) a default "safe" mode is used in which the
+data value found in the database is copied to the scalar returned, so you can do
+anything you want to that scalar without side effects.
+
+But when MODE is 1 (or, in the current implementation, any TRUE value) a sort
+of hack is used to avoid the memory copy and the scalar returned will hold only a
+pointer to the data value found. This is much faster and uses less memory, especially
+when used with large values, but there is a few caveats: In a read-only transaction
+the value is valid only until the end of the transaction, and in a read-write
+transaction the value is valid only until the next write operation (because any
+write operation can potentially modify the in-memory btree).
+
+=item $DB->del ( $key [, $data ] )
+
+Delete items from a database.
+
+This function removes key/data pairs from the database.
+
+If the database does not support sorted duplicate data items, (MDB_DUPSORT)
+the I<$data> parameter is optional and is ignored.
+
+If the database supports sorted duplicates and the I<$data> parameter
+is C<undef> or not provided, all of the duplicate data items for the I<$key>
+will be deleted. Otherwise, if the I<$data> parameter is provided
+only the matching data item will be deleted.
 
 =item $DB->set_compare ( CODE )
 
+Set a custom key comparison function referenced by I<CODE> for a database.
+
+I<CODE> should be a subroutine reference or an anonymous subroutine, that
+like Perl's L<perlfunc/"sort">, will receive the values to compare in the
+global variables C<$a> and C<$b>.
+         
+The comparison function is called whenever it is necessary to compare a
+key specified by the application with a key currently stored in the database.
+If no comparison function is specified, and no special key flags were
+specified in L<< LMDB_File->open() >>, the keys are compared lexically,
+with shorter keys collating before longer keys.
+
+B<Warning:> This function must be called before any data access functions
+are used, otherwise data corruption may occur. The same comparison function
+must be used by every program accessing the database, every time the
+database is used.
+
 =item $DB->Alive
+
+Retunrs a TRUE value if the transaction in which this database was opened is
+still alive, i.e. not commited nor aborted yet, and FALSE otherwise.
 
 =item $Cursor = $DB->Cursor
 
