@@ -20,7 +20,7 @@
 
 #define	F_ISSET(w, f)	(((w) & (f)) == (f))
 
-typedef I32 MyInt;
+typedef IV MyInt;
 
 #define StoreUV(k, v)	hv_store(RETVAL, (k), strlen(k), newSVuv(v), 0)
 
