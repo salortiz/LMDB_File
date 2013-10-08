@@ -38,10 +38,8 @@ my $env = LMDB::Env->new($dir, { maxdbs => 5 });
     my $txn = $env->BeginTxn;
     # A case insensitive DB
     ok(my $DBN = $txn->OpenDB('CI', MDB_CREATE), 'CI Created');
-    {
-	no warnings 'once';
-	$DBN->set_compare(sub { lc($LMDB_File::a) cmp lc($LMDB_File::b) });
-    }
+    $DBN->set_compare(sub { lc($a) cmp lc($b) });
+
     # A Reversed key order DB
     ok(my $DBR = $DBN->open('RK', MDB_CREATE|MDB_REVERSEKEY), 'RK Created');
 
