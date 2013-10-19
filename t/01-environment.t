@@ -15,7 +15,7 @@ if($ENV{LANG} && $ENV{LANG} !~ /^en/) {
 
 throws_ok {
     LMDB::Env->new("NoSuChDiR");
-} qr/No such file/, 'Directory must exists';
+} qr/No such/, 'Directory must exists';
 
 my $dir = tempdir('mdbtXXXX', TMPDIR => 1);
 ok(-d $dir, "Created $dir");
@@ -140,7 +140,7 @@ throws_ok {
     } qr/No such/, 'Copy needs a directory';
     throws_ok {
 	$env->copy($dir);
-    } qr/File exists/, 'An empty one, not myself';
+    } qr/File exists|error/, 'An empty one, not myself';
 
     SKIP: {
 	skip "Need a local directory", 2 unless(-d $testdir or mkdir $testdir);
