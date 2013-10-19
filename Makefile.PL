@@ -1,4 +1,4 @@
-use 5.010001;
+use 5.010000;
 use strict;
 use ExtUtils::MakeMaker;
 use Config;
@@ -11,27 +11,30 @@ my ($LIBS) = map { /^LIBS=(.*)$/ && $1 || () } @ARGV;
 my ($INC) = map { /^INC=(.*)/ && $1 || () } @ARGV;
 my $myextlib = '';
 {
-    $LIBS ||= '-llmdb';
-    my @libdata = ExtUtils::Liblist->ext($LIBS, 0, 'mdb_env_create');
+    $LIBS ||= '';
+    my @libdata = ExtUtils::Liblist->ext($LIBS || '-llmdb', 0, 'mdb_env_create');
     my @stdinc = qw(/usr/include /usr/local/include);
     push @stdinc, $libdata[3] if $libdata[3];
     my($Head) = grep -f "$_/lmdb.h", @stdinc;
     if(($INC || $Head) && $libdata[0]) {
 	$INC ||= "-I$Head" if -f "$libdata[3]/lmdb.h";
 	warn "Will use SYSTEM lmdb in $libdata[3]\n";
+	$LIBS ||= '-llmdb';
 	warn "If that path isn't a standard one, you may need to set LD_LIBRARY_PATH!\n"
 	    if($libdata[4][0] =~ /.so/);
-	#LMDB needs pthreads, perl can provide it, but...
-	$LIBS .= ' -lpthread' unless $Config{useithreads} eq 'define';
     } else {
 	warn "Will use my own copy of liblmdb.\n";
 	$myextlib = 'liblmdb/liblmdb$(LIB_EXT)';
     }
+
+    #LMDB needs pthreads, perl can provide it, but...
+    $LIBS .= ' -lpthread' unless $Config{useithreads} eq 'define';
+    $LIBS .= ' -lrt' if $^O =~ /solaris/i;
 }
 
 WriteMakefile(
     NAME		=> $NAME,
-    MIN_PERL_VERSION	=> '5.10.1',
+    MIN_PERL_VERSION	=> '5.10.0',
     VERSION_FROM	=> "lib/$NAME.pm", # finds $VERSION
     PREREQ_PM		=> {}, # e.g., Module::Name => 1.1
     ABSTRACT_FROM	=> "lib/$NAME.pm", # retrieve abstract from module
@@ -41,12 +44,11 @@ WriteMakefile(
     LICENSE		=> 'artistic_2',
     TEST_REQUIRES	=> { 'Test::More' => 0, 'Test::Exception' => 0 },
     OBJECT		=> '$(O_FILES)', # link all the C files too
+    LIBS		=> $LIBS,
     ($myextlib ? (
 	MYEXTLIB	=> $myextlib,
 	INC		=> '-I./liblmdb',
-	($Config{useithreads} eq 'define' ? () : (LIBS => '-lpthread'))
 	) : (
-	LIBS		=> [$LIBS],
 	INC		=> $INC
 	)
     ),
