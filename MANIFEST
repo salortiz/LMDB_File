@@ -13,6 +13,7 @@ t/02-named.t
 fallback/const-c.inc
 fallback/const-xs.inc
 lib/LMDB_File.pm
+liblmdb/CHANGES
 liblmdb/COPYRIGHT
 liblmdb/Doxyfile
 liblmdb/liblmdb.spec
