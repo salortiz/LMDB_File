@@ -96,12 +96,34 @@ static int
 constant_10 (pTHX_ const char *name, IV *iv_return) {
   /* When generated this function returned values for the list of names given
      here.  However, subsequent manual editing may have added or removed some.
-     MDB_APPEND MDB_CREATE MDB_NOSYNC MDB_RDONLY */
-  /* Offset 5 gives the best switch position.  */
-  switch (name[5]) {
-  case 'D':
+     MDB_APPEND MDB_CREATE MDB_NOLOCK MDB_NOSYNC MDB_RDONLY */
+  /* Offset 6 gives the best switch position.  */
+  switch (name[6]) {
+  case 'E':
+    if (memEQ(name, "MDB_CREATE", 10)) {
+    /*                     ^          */
+#ifdef MDB_CREATE
+      *iv_return = MDB_CREATE;
+      return PERL_constant_ISIV;
+#else
+      return PERL_constant_NOTDEF;
+#endif
+    }
+    break;
+  case 'L':
+    if (memEQ(name, "MDB_NOLOCK", 10)) {
+    /*                     ^          */
+#ifdef MDB_NOLOCK
+      *iv_return = MDB_NOLOCK;
+      return PERL_constant_ISIV;
+#else
+      return PERL_constant_NOTDEF;
+#endif
+    }
+    break;
+  case 'O':
     if (memEQ(name, "MDB_RDONLY", 10)) {
-    /*                    ^           */
+    /*                     ^          */
 #ifdef MDB_RDONLY
       *iv_return = MDB_RDONLY;
       return PERL_constant_ISIV;
@@ -110,20 +132,9 @@ constant_10 (pTHX_ const char *name, IV *iv_return) {
 #endif
     }
     break;
-  case 'O':
-    if (memEQ(name, "MDB_NOSYNC", 10)) {
-    /*                    ^           */
-#ifdef MDB_NOSYNC
-      *iv_return = MDB_NOSYNC;
-      return PERL_constant_ISIV;
-#else
-      return PERL_constant_NOTDEF;
-#endif
-    }
-    break;
   case 'P':
     if (memEQ(name, "MDB_APPEND", 10)) {
-    /*                    ^           */
+    /*                     ^          */
 #ifdef MDB_APPEND
       *iv_return = MDB_APPEND;
       return PERL_constant_ISIV;
@@ -132,11 +143,11 @@ constant_10 (pTHX_ const char *name, IV *iv_return) {
 #endif
     }
     break;
-  case 'R':
-    if (memEQ(name, "MDB_CREATE", 10)) {
-    /*                    ^           */
-#ifdef MDB_CREATE
-      *iv_return = MDB_CREATE;
+  case 'S':
+    if (memEQ(name, "MDB_NOSYNC", 10)) {
+    /*                     ^          */
+#ifdef MDB_NOSYNC
+      *iv_return = MDB_NOSYNC;
       return PERL_constant_ISIV;
 #else
       return PERL_constant_NOTDEF;
@@ -387,34 +398,23 @@ constant_13 (pTHX_ const char *name, IV *iv_return) {
   /* When generated this function returned values for the list of names given
      here.  However, subsequent manual editing may have added or removed some.
      MDB_APPENDDUP MDB_BAD_RSLOT MDB_CORRUPTED MDB_FIRST_DUP MDB_NODUPDATA
-     MDB_PAGE_FULL MDB_SET_RANGE */
-  /* Offset 4 gives the best switch position.  */
-  switch (name[4]) {
+     MDB_NOMEMINIT MDB_NORDAHEAD MDB_PAGE_FULL MDB_SET_RANGE */
+  /* Offset 11 gives the best switch position.  */
+  switch (name[11]) {
   case 'A':
-    if (memEQ(name, "MDB_APPENDDUP", 13)) {
-    /*                   ^               */
-#ifdef MDB_APPENDDUP
-      *iv_return = MDB_APPENDDUP;
+    if (memEQ(name, "MDB_NORDAHEAD", 13)) {
+    /*                          ^        */
+#ifdef MDB_NORDAHEAD
+      *iv_return = MDB_NORDAHEAD;
       return PERL_constant_ISIV;
 #else
       return PERL_constant_NOTDEF;
 #endif
     }
     break;
-  case 'B':
-    if (memEQ(name, "MDB_BAD_RSLOT", 13)) {
-    /*                   ^               */
-#ifdef MDB_BAD_RSLOT
-      *iv_return = MDB_BAD_RSLOT;
-      return PERL_constant_ISIV;
-#else
-      return PERL_constant_NOTDEF;
-#endif
-    }
-    break;
-  case 'C':
+  case 'E':
     if (memEQ(name, "MDB_CORRUPTED", 13)) {
-    /*                   ^               */
+    /*                          ^        */
 #ifdef MDB_CORRUPTED
       *iv_return = MDB_CORRUPTED;
       return PERL_constant_ISIV;
@@ -423,27 +423,27 @@ constant_13 (pTHX_ const char *name, IV *iv_return) {
 #endif
     }
     break;
-  case 'F':
-    if (memEQ(name, "MDB_FIRST_DUP", 13)) {
-    /*                   ^               */
-      *iv_return = MDB_FIRST_DUP;
+  case 'G':
+    if (memEQ(name, "MDB_SET_RANGE", 13)) {
+    /*                          ^        */
+      *iv_return = MDB_SET_RANGE;
       return PERL_constant_ISIV;
     }
     break;
-  case 'N':
-    if (memEQ(name, "MDB_NODUPDATA", 13)) {
-    /*                   ^               */
-#ifdef MDB_NODUPDATA
-      *iv_return = MDB_NODUPDATA;
+  case 'I':
+    if (memEQ(name, "MDB_NOMEMINIT", 13)) {
+    /*                          ^        */
+#ifdef MDB_NOMEMINIT
+      *iv_return = MDB_NOMEMINIT;
       return PERL_constant_ISIV;
 #else
       return PERL_constant_NOTDEF;
 #endif
     }
     break;
-  case 'P':
+  case 'L':
     if (memEQ(name, "MDB_PAGE_FULL", 13)) {
-    /*                   ^               */
+    /*                          ^        */
 #ifdef MDB_PAGE_FULL
       *iv_return = MDB_PAGE_FULL;
       return PERL_constant_ISIV;
@@ -452,10 +452,41 @@ constant_13 (pTHX_ const char *name, IV *iv_return) {
 #endif
     }
     break;
-  case 'S':
-    if (memEQ(name, "MDB_SET_RANGE", 13)) {
-    /*                   ^               */
-      *iv_return = MDB_SET_RANGE;
+  case 'O':
+    if (memEQ(name, "MDB_BAD_RSLOT", 13)) {
+    /*                          ^        */
+#ifdef MDB_BAD_RSLOT
+      *iv_return = MDB_BAD_RSLOT;
+      return PERL_constant_ISIV;
+#else
+      return PERL_constant_NOTDEF;
+#endif
+    }
+    break;
+  case 'T':
+    if (memEQ(name, "MDB_NODUPDATA", 13)) {
+    /*                          ^        */
+#ifdef MDB_NODUPDATA
+      *iv_return = MDB_NODUPDATA;
+      return PERL_constant_ISIV;
+#else
+      return PERL_constant_NOTDEF;
+#endif
+    }
+    break;
+  case 'U':
+    if (memEQ(name, "MDB_APPENDDUP", 13)) {
+    /*                          ^        */
+#ifdef MDB_APPENDDUP
+      *iv_return = MDB_APPENDDUP;
+      return PERL_constant_ISIV;
+#else
+      return PERL_constant_NOTDEF;
+#endif
+    }
+    if (memEQ(name, "MDB_FIRST_DUP", 13)) {
+    /*                          ^        */
+      *iv_return = MDB_FIRST_DUP;
       return PERL_constant_ISIV;
     }
     break;
@@ -744,13 +775,13 @@ my @names = (qw(MDB_APPEND MDB_APPENDDUP MDB_BAD_RSLOT MDB_CORRUPTED MDB_CREATE
 	       MDB_DUPSORT MDB_FIXEDMAP MDB_INCOMPATIBLE MDB_INTEGERDUP
 	       MDB_INTEGERKEY MDB_INVALID MDB_KEYEXIST MDB_LAST_ERRCODE
 	       MDB_MAPASYNC MDB_MAP_FULL MDB_MAP_RESIZED MDB_MULTIPLE
-	       MDB_NODUPDATA MDB_NOMETASYNC MDB_NOOVERWRITE MDB_NOSUBDIR
-	       MDB_NOSYNC MDB_NOTFOUND MDB_NOTLS MDB_PAGE_FULL
-	       MDB_PAGE_NOTFOUND MDB_PANIC MDB_RDONLY MDB_READERS_FULL
-	       MDB_RESERVE MDB_REVERSEDUP MDB_REVERSEKEY MDB_SUCCESS
-	       MDB_TLS_FULL MDB_TXN_FULL MDB_VERSION_FULL MDB_VERSION_MAJOR
-	       MDB_VERSION_MINOR MDB_VERSION_MISMATCH MDB_VERSION_PATCH
-	       MDB_WRITEMAP),
+	       MDB_NODUPDATA MDB_NOLOCK MDB_NOMEMINIT MDB_NOMETASYNC
+	       MDB_NOOVERWRITE MDB_NORDAHEAD MDB_NOSUBDIR MDB_NOSYNC
+	       MDB_NOTFOUND MDB_NOTLS MDB_PAGE_FULL MDB_PAGE_NOTFOUND MDB_PANIC
+	       MDB_RDONLY MDB_READERS_FULL MDB_RESERVE MDB_REVERSEDUP
+	       MDB_REVERSEKEY MDB_SUCCESS MDB_TLS_FULL MDB_TXN_FULL
+	       MDB_VERSION_FULL MDB_VERSION_MAJOR MDB_VERSION_MINOR
+	       MDB_VERSION_MISMATCH MDB_VERSION_PATCH MDB_WRITEMAP),
             {name=>"MDB_FIRST", type=>"IV", macro=>"1"},
             {name=>"MDB_FIRST_DUP", type=>"IV", macro=>"1"},
             {name=>"MDB_GET_BOTH", type=>"IV", macro=>"1"},

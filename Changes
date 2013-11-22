@@ -1,12 +1,28 @@
 Revision history for Perl extension LMDB_File.
+0.05  Fri Nov 22 2013
+    - Depends on 0.9.10+
+    - Relax Perl version dependency to 5.10.0
+    - Avoid using freed memory at transaction end.
+    - Add -lrt, needed in solaris
+    - Documentation fixes
+    Thanks to Doug Hoyte for its contributions.
 
-0.03  Fru Aug 23 2013
+0.04  Tue Oct  8 2013
+    - Depends on 0.9.8+ for fixed mdb_env_copy and changed mdb_dbi_flags.
+    - Cache dbflags to avoid repeated function calls
+    - Fix custom comparators to use global $a and $b
+    - Add experimental LMDB_File->Flush method that commit and re-open
+      a txn/db for continued use, proposed by Mark Zealey.
+    - Experimental zero-copy read mode. See LDMB_File->ReadMode
+
+0.03  Fri Aug 23 2013
     - Fix MDB_INTEGERKEY handling, now works
     - Reimplement mdb_env_copy to avoid O_DIRECT issues in unsupported filesystems.
     - Fix STORE when using tie, thanks to Mark Zealey for the report.
     - Avoid warn "undefined" for flags.
     - Use proper locale when testing, should fix Alexandr Ciornii's
       failed tests reports.
+
 0.02  Tue Aug 20 2013
     - Fix build with non threaded Perl.
     - Skip a test when can't create local directory.

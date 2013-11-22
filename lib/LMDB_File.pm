@@ -166,7 +166,7 @@ sub DESTROY {
 
 sub _prune {
     my $self = shift;
-    my $eid = $self->_env; # Avoid recreate environment
+    my $eid = shift;
     my $txl = $Envs{ $eid }{Txns};
     while(my $rel = shift @$txl) {
 	delete $Cursors{$_} for keys %{ $Txns{$$rel}{Cursors} };
@@ -187,18 +187,20 @@ sub abort {
 	return;
     }
     return unless $Txns{$$self}{Active}; # Ignore unless active
+    my $eid = $self->_env;
     $self->_abort;
     warn "LMDB::Txn $$self aborted\n" if $DEBUG;
-    $self->_prune;
+    $self->_prune($eid);
 }
 
 sub commit {
     my $self = shift;
     Carp::croak("Terminated transaction") unless $Txns{$$self};
     Carp::croak("Not an active transaction") unless $Txns{$$self}{Active};
+    my $eid = $self->_env;
     $self->_commit;
     warn "LMDB::Txn $$self commited\n" if $DEBUG;
-    $self->_prune;
+    $self->_prune($eid);
 }
 
 sub Flush {
@@ -463,13 +465,15 @@ sub ReadMode {
 1;
 __END__
 
+=encoding utf-8
+
 =head1 NAME
 
 LMDB_File - Tie to LMDB (OpenLDAP's Lightning Memory-Mapped Database)
 
 =head1 SYNOPSIS
 
-  # Simple TIE interface, when your in a rush
+  # Simple TIE interface, when you're in a rush
   use LMDB_File;
 
   $db = tie %hash, 'LMDB_File', $path;
@@ -483,7 +487,7 @@ LMDB_File - Tie to LMDB (OpenLDAP's Lightning Memory-Mapped Database)
 
 
   # The full power
-  use LMDB_File qw(:flags
+  use LMDB_File qw(:flags :cursor_op);
 
   $env = LMDB::Env->new($path, {
       mapsize => 100 * 1024 * 1024 * 1024, # Plenty space, don't worry
@@ -505,7 +509,7 @@ LMDB_File - Tie to LMDB (OpenLDAP's Lightning Memory-Mapped Database)
   $DB->put($key, $value, MDB_NOOVERWITE); # Don't replace existing value
 
   # Work with cursors
-  $cursor => $DB->OpenCursor;
+  $cursor => $DB->Cursor;
 
   $cursor->get($key, $value, MDB_FIRST); # First key/value in DB
   $cursor->get($key, $value, MDB_NEXT);  # Next key/value in DB
@@ -522,7 +526,7 @@ B<NOTE: This document is still under construction. Expect it to be>
 B<incomplete in places.>
 
 LMDB_File is a Perl module which allows Perl programs to make use of the
-facilities provided by the OpenLDAP's Lightning Memory-Mapped Database "LMDB".
+facilities provided by OpenLDAP's Lightning Memory-Mapped Database "LMDB".
 
 LMDB is a Btree-based database management library modeled loosely on the
 BerkeleyDB API, but much simplified and extremely fast.
@@ -531,7 +535,7 @@ It is assumed that you have a copy of LMBD's documentation at hand when reading
 this documentation. The interface defined here mirrors the C interface closely
 but with an OO approach.
 
-This is implemented with a number Perl classes.
+This is implemented with a number of Perl classes.
 
 A LMDB's B<environment> handler (MDB_env* in C) will be wrapped in the
 B<LMDB::Env> class.
@@ -549,11 +553,11 @@ DataBase handler, LMDB_File will use a B<LMDB_File> object that encapsulates bot
 
 =head1 Error reporting
 
-In the C API, most functions returns 0 on success and an error code on failure.
+In the C API, most functions return 0 on success and an error code on failure.
 
 In this module, when a function fails, the package variable B<$die_on_err> controls
-the course of action. When B<$die_on_err> is set to TRUE, this cause LMDB_File to
-C<die> with an error message, that can be trapped by an C<eval { ... }> block.
+the course of action. When B<$die_on_err> is set to TRUE, this causes LMDB_File to
+C<die> with an error message that can be trapped by an C<eval { ... }> block.
 
 When FALSE, the function will return the error code, in this case you should check
 the return value of any function call.
@@ -565,23 +569,23 @@ in the package variable B<$last_err>.
 
 =head1 LMDB::Env
 
-This class wraps an opened LMDB's B<environment>.
+This class wraps an opened LMDB B<environment>.
 
-At construction time, the environment is created, if not exists, and opened.
+At construction time, the environment is created, if it does not exist, and opened.
 
-When you finished using it, in the C API you must call the C<mdb_env_close>
+When you are finished using it, in the C API you must call the C<mdb_env_close>
 function to close it and free the memory allocated, but in Perl you simply
 will let that the object get out of scope.
 
 =head2 Constructor
- 
+
 $Env = LMDB::Env->new ( $path [, ENVOPTIONS ] ) 
 
-Create a new C<LMDB::Env> object and returns it. It encapsulate both LMDB's 
+Creates a new C<LMDB::Env> object and returns it. It encapsulates both LMDB's 
 C<mdb_env_create> and C<mdb_env_open> functions.
 
 I<$path> is the directory in which the database files reside. This directory
-must already exists and should be writable.
+must already exist and should be writable.
 
 C<ENVOPTIONS>, if provided, must be a HASH Reference with any of the following
 options:
@@ -640,7 +644,7 @@ how the operating system has allocated memory to shared libraries and other uses
 The feature is highly experimental.
 
 =item MDB_NOSUBDIR
-    
+
 By default, LMDB creates its environment in a directory whose
 pathname is given in I<$path>, and creates its data and lock files
 under that directory. With this option, I<$path> is used as-is for
@@ -659,7 +663,7 @@ Use a writeable memory map unless C<MDB_RDONLY> is set. This is faster
 and uses fewer mallocs, but loses protection from application bugs
 like wild pointer writes and other bad updates into the database.
 
-Incompatible with nested transactions.
+Incompatible with nested transactions (also known as sub transactions).
 
 =item MDB_NOMETASYNC
 
@@ -791,12 +795,12 @@ Returns in I<$flags> the environment flags.
 
 =item $Env->get_path ( $path )
 
-Returns in I<$path> that was used in C<< LMDB::Env->new(...) >>
+Returns in I<$path> the path that was used in C<< LMDB::Env->new(...) >>
 
 =item $Env->get_maxreaders ( $readers )
 
 Returns in I<$readers> the maximum number of threads/reader slots for
-the invironment
+the environment
 
 =item $mks = $Env->get_maxkeysize
 
@@ -809,14 +813,14 @@ L</LMDB::Txn>.
 
 If provided, $tflags will be passed to the constructor, if not provided,
 this wrapper will propagate the environment's flag C<MDB_RDONLY>,
-if setted, to the transaction constructor.
+if set, to the transaction constructor.
 
 =back
 
 =head1 LMDB::Txn
 
 In LMDB every operation (read or write) on a DataBase needs to be inside a
-B<transaction>. This class wraps an LMDB's transaction.
+B<transaction>. This class wraps an LMDB transaction.
 
 By default you must terminate the transaction by either the C<abort> or C<commit>
 methods. After a transaction is terminated, you should not call any other method
@@ -861,23 +865,36 @@ if it is still alive, or C<undef> if called on a terminated transaction.
 
 =item $SubTxn = $Txn->SubTxn ( [ $tflags ] )
 
-Creates and returns a sub transaction.
+Creates and returns a sub transaction (also known as a nested transaction).
 
-TO BE DOCUMENTED
+Nested transactions are useful for combining components that create and
+commit transactions. No modifications are permanently stored until the
+highest level "parent" transaction is committed. Nested transactions can
+be aborted without aborting the parent transaction and only the changes
+made in the nested transaction will be rolled-back.
+
+Aborting the parent transaction will abort and terminate all outstanding
+nested transactions. Committing the parent transaction will similarly
+commit and terminate all outstanding nested transactions.
+
+Unlike some other databases, in LMDB changes made inside nested transactions
+are not visible to the parent transaction until the nested transaction is
+committed. In other words, transactions are always isolated, even when they
+are nested.
 
 =item $Txn->AutoCommit ( [ BOOL ] )
 
-When I<BOOL> is provided, it set the behavior of the transaction when going
+When I<BOOL> is provided, it sets the behavior of the transaction when going
 out of scope: I<BOOL> TRUE makes arrangements for the transaction to be auto
 committed and I<BOOL> FALSE returns to the default behavior: to be aborted.
-If you don't provide I<BOOL>, you are only interested in known the current
-value of this option, that is returned in every case.
+If you don't provide I<BOOL>, you are only interested in knowing the current
+value of this option, which is returned in every case.
 
 =item $DB = $Txn->OpenDB ( [ DBOPTIONS ] )
 
 =item $DB = $Txn->OpenDB ( [ $dbname [, DBFLAGS ]] )
 
-This method open a DataBase in the environment. This is only syntactic sugar
+This method opens a DataBase in the environment. This is only syntactic sugar
 for C<< LMDB_File->open(...) >>.
 
 B<DBOPTIONS>, if provided,  should be a HASH reference with any of the
@@ -900,7 +917,7 @@ documented ahead.
 
 =head2 Constructor
 
-$DB = LMDB_File->open ( $Txn [, $dbname [, DBFLAGS ] ] )
+  $DB = LMDB_File->open ( $Txn [, $dbname [, DBFLAGS ] ] )
 
 If provided I<$dbname>, will be the name of a named Data Base in the environment,
 if not provided (or if I<$dbname> is C<undef>), the opened Data Base will be
@@ -963,7 +980,7 @@ is to enter the new key/data pair, replacing any previously existing key
 if duplicates are disallowed, or adding a duplicate data item if
 duplicates are allowed
 
-I<$key> is the key to store in de database and I<$data> the data to store.
+I<$key> is the key to store in the database and I<$data> the data to store.
 
 B<WRITEFLAGS>, if provided, will set special options for this operation and
 can be one following flags:
@@ -1022,7 +1039,7 @@ If the database supports duplicate keys (#MDB_DUPSORT) then the
 first data item for the key will be returned. Retrieval of other
 items requires the use of the C<< LMBD::Cursor->get() >> method.
 
-The two-arguments form, closer to the C API, returns in the provided argument
+The two-argument form, closer to the C API, returns in the provided argument
 I<$data> the value associated with I<$key> in the database if it exists or reports
 an error if not.
 
@@ -1053,10 +1070,14 @@ anything you want to that scalar without side effects.
 But when MODE is 1 (or, in the current implementation, any TRUE value) a sort
 of hack is used to avoid the memory copy and the scalar returned will hold only a
 pointer to the data value found. This is much faster and uses less memory, especially
-when used with large values, but there is a few caveats: In a read-only transaction
+when used with large values, but there are a few caveats: In a read-only transaction
 the value is valid only until the end of the transaction, and in a read-write
 transaction the value is valid only until the next write operation (because any
 write operation can potentially modify the in-memory btree).
+
+B<NOTE:> In order to achieve the zero-copy behavior desired by setting L<ReadMode>
+to TRUE, you must use the two-argument form of get (C<< $DB->get ( $key, $data ) >>)
+or use the cursor get method described below.
 
 =item $DB->del ( $key [, $data ] )
 
@@ -1079,11 +1100,11 @@ Set a custom key comparison function referenced by I<CODE> for a database.
 I<CODE> should be a subroutine reference or an anonymous subroutine, that
 like Perl's L<perlfunc/"sort">, will receive the values to compare in the
 global variables C<$a> and C<$b>.
-         
+
 The comparison function is called whenever it is necessary to compare a
 key specified by the application with a key currently stored in the database.
 If no comparison function is specified, and no special key flags were
-specified in L<< LMDB_File->open() >>, the keys are compared lexically,
+specified in C<< LMDB_File->open() >>, the keys are compared lexically,
 with shorter keys collating before longer keys.
 
 B<Warning:> This function must be called before any data access functions
@@ -1110,7 +1131,7 @@ Retrieve the DB flags for this database.
 
 =item $status = $DB->stat
 
-Returns a HASH reference with statistics for the database, the hash will contains
+Returns a HASH reference with statistics for the database, the hash will contain
 the following keys:
 
 =over
@@ -1134,7 +1155,7 @@ the following keys:
 To construct a cursor you should call the C<Cursor> method of the C<LMDB_File>
 class:
 
- $cursor = $DB->OpenCursor
+ $cursor = $DB->Cursor
 
 =head2 Class methods
 
@@ -1161,7 +1182,7 @@ Position at first data item of current key. Only for C<MDB_DUPSORT>
 =item MDB_GET_BOTH
 
 Position at key/data pair. Only for C<MDB_DUPSORT>
-	
+
 =item MDB_GET_BOTH_RANGE
 
 Position at key, nearest data. Only for C<MDB_DUPSORT>
@@ -1237,7 +1258,7 @@ database, the cursor is always positioned to refer to the newly inserted item.
 =head1 Exportable constants
 
 At C<use> time you can import into your namespace the following constants,
-grouped by its tag.
+grouped by their tags.
 
 =head2 Environment flags C<:envflags>
 
@@ -1281,7 +1302,7 @@ All of C<:envflags>, C<:dbflags> and C<:writeflags>
 
 The simplest interface to LMDB is using L<perlfunc/tie>.
 
-The TIE interface of LMDB_File can take several forms, that depends of the
+The TIE interface of LMDB_File can take several forms that depend on the
 data at hand.
 
 =over
@@ -1296,20 +1317,20 @@ For compatibility with other DBM modules.
 
 =item tie %hash, 'LMDB_File', $Txn [, DBOPTIONS ]
 
-When you has a Transaction object I<$Txn> at hand.
+When you have a Transaction object I<$Txn> at hand.
 
 =item tie %hash, 'LMDB_File', $Env [, DBOPTIONS ]
 
-When you has an Environment object I<$Env> at hand.
+When you have an Environment object I<$Env> at hand.
 
 =item tie %hash, $DB
 
-When you has an opened database.
+When you have an opened database.
 
 =back
 
 The first two forms will create and/or open the Environment at I<$path>,
-creates a new Transaction and open a database in the Transaction.
+create a new Transaction and open a database in the Transaction.
 
 If provided, I<$options> must be a HASH reference with options for both
 the Environment and the database.
@@ -1317,7 +1338,7 @@ the Environment and the database.
 Valid keys for I<$option> are any described above for B<ENVOPTIONS>
 and B<DBOPTIONS>.
 
-In the case that you has already created a transaction or an environment,
+In the case that you have already created a transaction or an environment,
 you can provide a HASH reference in B<DBOPTIONS> for options exclusively
 for the database.
 
