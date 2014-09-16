@@ -50,9 +50,6 @@ typedef	MDB_val	    DBKC;
 typedef	MDB_cursor* LMDB__Cursor;
 typedef	unsigned int flags_t;
 
-static GV *my_lasterr;
-static GV *my_errgv;
-#define DieOnErr    SvTRUE(GvSV(my_errgv))
 
 #define MY_CXT_KEY  "LMDB_File::_guts" XS_VERSION
 typedef struct {
@@ -60,6 +57,8 @@ typedef struct {
     unsigned int cflags;
     SV *my_asv;
     SV *my_bsv;
+    GV *my_lasterr;
+    GV *my_errgv;
     OP *lmdb_dcmp_cop;
 } my_cxt_t;
 
@@ -163,7 +162,7 @@ LMDB_dcmp(const MDB_val *a, const MDB_val *b) {
     }								    \
     MY_PUSH_COMMON
 
-#define MY_POP_MULTICALL    \
+#define MY_POP_MULTICALL     \
     if(multicall_cv) {            \
 	POP_MULTICALL; newsp = newsp;  \
     }
@@ -201,9 +200,12 @@ LMDB_dcmp(const MDB_val *a, const MDB_val *b) {
 
 #endif	/* dMULTICALL */
 
+#define DieOnErr    SvTRUE(GvSV(MY_CXT.my_errgv))
+
 #define ProcError(res)   \
     if(res) {					\
-	sv_setiv(GvSV(my_lasterr), res);	\
+	dMY_CXT;				\
+	sv_setiv(GvSV(MY_CXT.my_lasterr), res);	\
 	SV *sv = newSVpvf(mdb_strerror(res));	\
 	SvSetSV(ERRSV, sv);			\
 	if(DieOnErr) croak(NULL);		\
@@ -343,6 +345,23 @@ mdb_env_id(env)
     OUTPUT:
 	RETVAL
 
+void
+_clone()
+    CODE:
+    MY_CXT_CLONE;
+    MY_CXT.my_asv = get_sv("::a", GV_ADDMULTI);	    
+    MY_CXT.my_bsv = get_sv("::b", GV_ADDMULTI);	    
+    MY_CXT.my_lasterr = gv_fetchpv("LMDB_File::last_err", 0, SVt_IV);
+    MY_CXT.my_errgv = gv_fetchpv("LMDB_File::die_on_err", 0, SVt_IV);
+
+BOOT:
+    MY_CXT_INIT;
+    MY_CXT.my_asv = get_sv("::a", GV_ADDMULTI);	    
+    MY_CXT.my_bsv = get_sv("::b", GV_ADDMULTI);	    
+    MY_CXT.my_lasterr = gv_fetchpv("LMDB_File::last_err", 0, SVt_IV);
+    MY_CXT.my_errgv = gv_fetchpv("LMDB_File::die_on_err", 0, SVt_IV);
+
+
 MODULE = LMDB_File	PACKAGE = LMDB::Txn	PREFIX = mdb_txn
 
 int
@@ -392,6 +411,19 @@ mdb_txn_id(txn)
     OUTPUT:
 	RETVAL
 
+MODULE = LMDB_File	PACKAGE = LMDB::Txn	PREFIX = mdb
+
+int
+mdb_dbi_open(txn, name, flags, dbi)
+	LMDB::Txn   txn
+	const char * name = SvOK($arg) ? (const char *)SvPV_nolen($arg) : NULL;
+	flags_t	flags
+	LMDB	&dbi = NO_INIT
+    POSTCALL:
+	ProcError(RETVAL);
+    OUTPUT:
+	dbi
+
 MODULE = LMDB_File	PACKAGE = LMDB::Cursor	PREFIX = mdb_cursor_
 
 int
@@ -418,11 +450,6 @@ mdb_cursor_dbi(cursor)
 	LMDB::Cursor	cursor
 
 int
-mdb_cursor_del(cursor, flags)
-	LMDB::Cursor	cursor
-	flags_t		flags
-
-int
 mdb_cursor_renew(txn, cursor)
 	LMDB::Txn   txn
 	LMDB::Cursor	cursor
@@ -438,7 +465,7 @@ mdb_cursor_txn(cursor)
 MODULE = LMDB_File	PACKAGE = LMDB::Cursor	PREFIX = mdb_cursor
 
 int
-mdb_cursor_get(cursor, key, data, op)
+mdb_cursor_get(cursor, key, data, op = MDB_FIRST)
     PREINIT:
 	dMY_MULTICALL;
 	dCURSOR;
@@ -457,7 +484,7 @@ mdb_cursor_get(cursor, key, data, op)
 	data
 
 int
-mdb_cursor_put(cursor, key, data, flags)
+mdb_cursor_put(cursor, key, data, flags = 0)
     PREINIT:
 	dMY_MULTICALL;
 	dCURSOR;
@@ -471,6 +498,11 @@ mdb_cursor_put(cursor, key, data, flags)
     POSTCALL:
 	MY_POP_MULTICALL;
 	ProcError(RETVAL);
+
+int
+mdb_cursor_del(cursor, flags = 0)
+	LMDB::Cursor	cursor
+	flags_t		flags
 
 MODULE = LMDB_File		PACKAGE = LMDB_File	    PREFIX = mdb
 
@@ -491,17 +523,6 @@ _setcurrent(currdb)
 	dMY_CXT;
     CODE:
 	MY_CXT.currdb = currdb;
-
-int
-mdb_dbi_open(txn, name, flags, dbi)
-	LMDB::Txn   txn
-	const char * name = SvOK($arg) ? (const char *)SvPV_nolen($arg) : NULL;
-	flags_t	flags
-	LMDB	&dbi = NO_INIT
-    POSTCALL:
-	ProcError(RETVAL);
-    OUTPUT:
-	dbi
 
 HV*
 mdb_stat(txn, dbi)
@@ -535,6 +556,8 @@ mdb_drop(txn, dbi, del)
 	LMDB::Txn   txn
 	LMDB	dbi
 	int	del
+    POSTCALL:
+	ProcError(RETVAL);
 
 =pod
 int
@@ -580,7 +603,7 @@ mdb_get(txn, dbi, key, data)
 	data
 
 int
-mdb_put(txn, dbi, key, data, flags)
+mdb_put(txn, dbi, key, data, flags = 0)
     PREINIT:
 	dMY_MULTICALL;
     INPUT:
@@ -673,11 +696,4 @@ mdb_version(major, minor, patch)
 	major
 	minor
 	patch
-
-BOOT:
-    MY_CXT_INIT;
-    MY_CXT.my_asv = get_sv("::a", GV_ADDMULTI);	    
-    MY_CXT.my_bsv = get_sv("::b", GV_ADDMULTI);	    
-    my_lasterr = gv_fetchpv("LMDB_File::last_err", 0, SVt_IV);
-    my_errgv = gv_fetchpv("LMDB_File::die_on_err", 0, SVt_IV);
 

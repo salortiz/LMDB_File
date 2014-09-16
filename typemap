@@ -4,7 +4,8 @@ LMDB::Env	T_PTROBJ
 LMDB::Txn	T_PTROBJ
 TxnOrNull	T_PTROBJ_N
 LMDB::Cursor	T_PTROBJ
-LMDB		T_OPAQUE
+#LMDB		T_OPAQUE
+LMDB		T_UV
 DBD		T_datum
 DBK		T_keydatum
 DBKC		T_keydatumC

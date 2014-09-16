@@ -1,4 +1,12 @@
 Revision history for Perl extension LMDB_File.
+0.06  Mon Sep 15 2014
+    - Include liblmdb 0.9.14
+    - Add LMDB::Env->open and LMDB_file->new for low level dbi handling
+    - Complete LMDB_File->drop support.
+    - Fix typo in ->set_maxreaders
+    - Use proper default flags for some methods.
+    Thanks to Ken Fredric for its testing and reports
+
 0.05  Fri Nov 22 2013
     - Depends on 0.9.10+
     - Relax Perl version dependency to 5.10.0

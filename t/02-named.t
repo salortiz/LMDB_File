@@ -1,5 +1,5 @@
 #!perl
-use Test::More tests => 36;
+use Test::More tests => 50;
 use Test::Exception;
 use strict;
 use warnings;
@@ -24,7 +24,7 @@ my $env = LMDB::Env->new($dir, { maxdbs => 5 });
 	$txn->OpenDB('SOME');
     } qr/NOTFOUND/, 'No created yet';
     my $DB = $txn->OpenDB('SOME', MDB_CREATE);
-    ok($DB, "CI DB Opened");
+    ok($DB, "SOME DB Opened");
     is($mdb->stat->{entries}, 1, 'Created');
 }
 {
@@ -33,6 +33,34 @@ my $env = LMDB::Env->new($dir, { maxdbs => 5 });
     throws_ok {
 	$txn->OpenDB('SOME');
     } qr/NOTFOUND/, 'No preserved';
+}
+{
+    my $txn = $env->BeginTxn;
+    $txn->AutoCommit(1);
+    ok(my $odb = $txn->OpenDB({dbname => 'ONE', flags => MDB_CREATE}), 'ONE Created');
+    is($odb->[1], 2, 'First One');
+    $odb->put(Test => 'Hello World');
+    $odb->put(Test2 => 'A simple string');
+    is($odb->stat->{entries}, 2, 'In there');
+}
+{
+    my $txn = $env->BeginTxn;
+    ok(my $db = $txn->OpenDB({dbname => 'TWO', flags => MDB_CREATE}), 'TWO Created');
+    is($db->[1], 3, 'Second One');
+    is($db->stat->{entries}, 0, 'Empty');
+    ok(!$db->get('Test'), "No in this");
+}
+{    
+    my $txn = $env->BeginTxn;
+    ok(my $odb = $txn->OpenDB('ONE'), 'Preserved');
+    is($odb->stat->{entries}, 2, "With 2 keys");
+    is($odb->get('Test'), 'Hello World', 'In there');
+    is(LMDB_File->open($txn)->stat->{entries}, 1, 'ONE DB');
+    throws_ok {
+	$odb->open('TWO');
+    } qr/NOTFOUND/, 'NO TWO DB';
+    lives_ok { $odb->drop; } 'ONE emptied';
+    is($odb->stat->{entries}, 0, 'Removed');
 }
 {
     my $txn = $env->BeginTxn;

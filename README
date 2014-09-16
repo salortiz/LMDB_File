@@ -1,4 +1,4 @@
-LMDB_File version 0.05
+LMDB_File version 0.06
 ======================
 
 LMDB_File is a Perl wrapper around the OpenLDAP's LMDB (Lightning
@@ -49,7 +49,7 @@ be aware that the API isn't in stone yet. See TODO
 
 COPYRIGHT AND LICENCE
 
-Copyright (C) 2013 by Salvador Ortiz Garcia
+Copyright (C) 2013-2014 by Salvador Ortiz Garcia
 
 This module is free software; you can redistribute it and/or modify
 it under the same terms as Perl itself, either Perl version 5.10.1 or,

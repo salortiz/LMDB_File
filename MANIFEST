@@ -25,6 +25,10 @@ liblmdb/mdb_copy.1
 liblmdb/mdb_copy.c
 liblmdb/mdb_stat.1
 liblmdb/mdb_stat.c
+liblmdb/mdb_dump.1
+liblmdb/mdb_dump.c
+liblmdb/mdb_load.1
+liblmdb/mdb_load.c
 liblmdb/midl.c
 liblmdb/midl.h
 liblmdb/mtest2.c
@@ -33,6 +37,4 @@ liblmdb/mtest4.c
 liblmdb/mtest5.c
 liblmdb/mtest6.c
 liblmdb/mtest.c
-liblmdb/sample-bdb.c
-liblmdb/sample-mdb.c
 

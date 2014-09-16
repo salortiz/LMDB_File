@@ -8,6 +8,9 @@ use Carp;
 require Exporter;
 use AutoLoader;
 
+our $VERSION = '0.06';
+our $DEBUG = 0;
+
 our @ISA = qw(Exporter);
 our @CARP_NOT = qw(LMDB::Env LMDB::Txn LMDB::Cursor LMDB_File);
 
@@ -40,9 +43,6 @@ $EXPORT_TAGS{flags} = [
 }
 our @EXPORT_OK = ( @{ $EXPORT_TAGS{'all'} } );
 
-our $VERSION = '0.05';
-our $DEBUG = 0;
-
 sub AUTOLOAD {
     my $constname;
     our $AUTOLOAD;
@@ -60,6 +60,13 @@ sub AUTOLOAD {
 require XSLoader;
 XSLoader::load('LMDB_File', $VERSION);
 
+my $dbflmask = do {
+    no strict 'refs';
+    my $f = 0;
+    $f |= &{"LMDB_File::$_"}() for @{$EXPORT_TAGS{dbflags}};
+    $f;
+};
+
 package LMDB::Env;
 use Scalar::Util ();
 use Fcntl;
@@ -75,7 +82,7 @@ sub new {
 	    and return;
 	$eflags->{maxdbs} and $self->set_maxdbs($eflags->{maxdbs})
 	    and return;
-	$eflags->{maxreaders} and $self->set_max_readers($eflags->{maxreaders})
+	$eflags->{maxreaders} and $self->set_maxreaders($eflags->{maxreaders})
 	    and return;
     }
     $self->open($path, $eflags->{flags}, $eflags->{mode} || 0600)
@@ -112,17 +119,22 @@ sub BeginTxn {
     $self->get_flags(my $eflags);
     my $tflags = shift || ($eflags & LMDB_File::MDB_RDONLY());
     my $txl = $Envs{ $$self }{Txns};
-    warn "In BT $$self($$), deep: ", scalar(@$txl), "\n" if $DEBUG;
+    warn "BeginTxn $$self($$), deep: ", scalar(@$txl), "\n" if $DEBUG;
     return $txl->[0]->SubTxn($tflags) if @$txl;
     return LMDB::Txn->new($self, $tflags);
+}
+
+sub CLONE {
+    # After a thread is created all Txns of parent thread are forgot 
+    $_->{Txns} = [] for values %Envs;
+    _clone();
+    return 1;
 }
 
 package LMDB::Txn;
 
 our %Txns;
 my %Cursors;
-# All LMDB Transactions are usable only in the thread that create it
-sub CLONE_SKIP { 1; }
 
 sub new {
     my ($parent, $env, $tflags) = @_;
@@ -229,9 +241,20 @@ sub renew {
     $td->{Active} = 1;
 }
 
+sub open {
+    my($txn, $name, $flags) = @_;
+     $flags ||= 0;
+    Carp::croak("Not an active transaction") unless $Txns{$$txn};
+    Carp::croak("Not the current child transaction")
+	unless(${$Envs{ $txn->_env }{Txns}[0]} == $$txn);
+    _dbi_open($txn, $name, $flags & $dbflmask, my $dbi);
+    warn "Opened dbi $dbi\n" if $dbi && $DEBUG;
+    return $dbi;
+}
+
 sub OpenDB {
     my ($self, $name, $flags) = @_;
-    my $options = { dbname => $name, flags => $flags } unless ref $name eq 'HASH';
+    my $options = ref($name) eq 'HASH' ? $name : { dbname => $name, flags => $flags };
     LMDB_File->open($self, $options->{dbname}, $options->{flags});
 }
 
@@ -248,6 +271,11 @@ sub AutoCommit {
     return $prev;
 }
 
+sub CLONE_SKIP {
+    # All LMDB Transactions are usable only in the thread that create it
+    1;
+}
+
 package LMDB::Cursor;
 
 sub get {
@@ -258,6 +286,11 @@ sub get {
 sub put {
     LMDB_File::_chkalive($Cursors{${$_[0]}});
     goto &_put;
+}
+
+sub del {
+    LMDB_File::_chkalive($Cursors{${$_[0]}});
+    goto &_del;
 }
 
 sub DESTROY {
@@ -275,24 +308,19 @@ sub CLONE_SKIP { 1; }
 our $die_on_err = 1;
 our $last_err = 0;
 
-my $dbflmask = do {
-    no strict 'refs';
-    my $f = 0;
-    $f |= &{$_}() for @{$EXPORT_TAGS{dbflags}};
-    $f;
-};
+sub new {
+    my($proto, $txn, $dbi) = @_;
+    Carp::croak("Need a Txn") unless $txn->isa('LMDB::Txn');
+    bless [ $txn, $dbi ], ref($proto) || $proto;
+}
 
 sub open {
     my $proto = shift;
-    my $txn = ref($proto) ? $proto->[0] : shift;
-    my ($name, $flags) = @_;
-    $flags ||= 0;
-    Carp::croak("Need a Txn") unless ref $txn eq 'LMDB::Txn';
-    Carp::croak("Not an active transaction") unless $Txns{$$txn};
-    _dbi_open($txn, $name, $flags & $dbflmask, my $dbi);
-    return unless $dbi;
-    warn "Opened dbi #".ord($dbi)."\n" if $DEBUG;
-    return bless [ $txn, $dbi ], 'LMDB_File';
+    my $class = ref $proto;
+    my $txn = $class ? $proto->[0] : shift;
+    Carp::croak("Need a Txn") unless $txn->isa('LMDB::Txn');
+    my $dbi = $txn->open(@_) or return;
+    bless [ $txn, $dbi ], $class || $proto;
 }
 
 sub DESTROY {
@@ -303,7 +331,11 @@ sub _chkalive {
     my $self = shift;
     my $txn = $self->[0];
     Carp::croak("Not an active transaction")
-	unless($txn && ($Txns{ $$txn } || undef $self->[0]));
+	unless($txn && $Txns{ $$txn });
+    # A parent transaction and its cursors may not issue any other operations than
+    # mdb_txn_commit and mdb_txn_abort while it has active child transactions.
+    Carp::croak("Not the current child transaction")
+	unless(${$Envs{ $txn->_env }{Txns}[0]} == $$txn);
     _setcurrent($self);
     return $txn, $self->[1];
 }
@@ -311,7 +343,7 @@ sub _chkalive {
 sub Alive {
     my $self = shift;
     my $txn = $self->[0];
-    return $txn && (($Txns{$$txn}&& ord $self->[1])||undef $self->[0]||($self->[1]=0));
+    return $txn && (($Txns{$$txn} && $self->[1]) || undef $self->[0]);
 }
 
 sub flags {
@@ -322,19 +354,16 @@ sub flags {
 
 sub put {
     my $self = shift;
-    my ($key, $data, $flags) = @_;
-    warn "put: '$key' => '$data'\n" if $DEBUG > 2;
-    _put(_chkalive($self), $key, $data, $flags);
-    return $data;
+    warn "put: '$_[0]' => '$_[1]'\n" if $DEBUG > 2;
+    _put(_chkalive($self), @_);
+    return $_[1];
 }
 
 sub get {
-    my $self = $_[0];
-    my $key = $_[1];
-    warn "get: '$key'\n" if $DEBUG > 2;
-    return _get(_chkalive($self), $key, $_[2]) if @_ > 2;
+    warn "get: '$_[1]'\n" if $DEBUG > 2;
+    return _get(_chkalive($_[0]), $_[1], $_[2]) if @_ > 2;
     local $die_on_err = 0;
-    _get(_chkalive($self), $key, my $data);
+    _get(_chkalive($_[0]), $_[1], my $data);
     return $data;
 }
 
@@ -343,8 +372,7 @@ sub stat {
 }
 
 sub del {
-    my $self = shift;
-    _del(_chkalive($self), @_);
+    _del(_chkalive($_[0]), $_[1], $_[2] || undef);
 }
 
 sub set_dupsort {
@@ -364,14 +392,17 @@ sub Cursor {
     return unless $cursor;
     $Txns{$$txn}{Cursors}{$$cursor} = 1;
     $Cursors{$$cursor} = $DB;
-    warn "Cursor opened for #".ord($dbi)."\n" if $DEBUG;
+    warn "Cursor opened for #$dbi\n" if $DEBUG;
     return $cursor;
 }
 
-sub Txn {
-    $_[0][0];
-}
+sub Txn { $_[0][0]; }
 
+sub dbi { $_[0][1]; }
+
+sub drop {
+    _drop(_chkalive($_[0]), $_[1] || 0);
+}
 
 sub TIEHASH {
     my $proto = shift;
@@ -519,7 +550,6 @@ LMDB_File - Tie to LMDB (OpenLDAP's Lightning Memory-Mapped Database)
   $DB->set_compare( sub { lc($a) cmp lc($b) } ); # Use my own key comparison function
 
 
-
 =head1 DESCRIPTION
 
 B<NOTE: This document is still under construction. Expect it to be>
@@ -546,9 +576,10 @@ B<LMDB::Txn> class.
 A LMDB's B<cursor> handler (MDB_cursor* in C) will be wrapped in the
 B<LMDB::Cursor> class.
 
-A LMDB's B<DataBase> handler (MDB_dbi in C) will be wrapped in an opaque SCALAR,
-but because in LMDB all DataBase operations needs both a Transaction and a
-DataBase handler, LMDB_File will use a B<LMDB_File> object that encapsulates both.
+A LMDB's B<Database> handler (MDB_dbi in C) will be exposed as a simple
+integer, but because in LMDB all Database operations needs both a Transaction
+and a Database handler, LMDB_File provides you use a convenient B<LMDB_File>
+object that encapsulates both and mimic the syntax of other *_File modules.
 
 
 =head1 Error reporting
@@ -587,7 +618,7 @@ C<mdb_env_create> and C<mdb_env_open> functions.
 I<$path> is the directory in which the database files reside. This directory
 must already exist and should be writable.
 
-C<ENVOPTIONS>, if provided, must be a HASH Reference with any of the following
+B<ENVOPTIONS>, if provided, must be a HASH Reference with any of the following
 options:
 
 =over
@@ -819,12 +850,13 @@ if set, to the transaction constructor.
 
 =head1 LMDB::Txn
 
-In LMDB every operation (read or write) on a DataBase needs to be inside a
+In LMDB every operation (read or write) on a Database needs to be inside a
 B<transaction>. This class wraps an LMDB transaction.
 
-By default you must terminate the transaction by either the C<abort> or C<commit>
+You must terminate the transaction by either the C<abort> or C<commit>
 methods. After a transaction is terminated, you should not call any other method
 on it, except C<env>.
+
 If you let an object of this class get out of scope, by default the transaction
 will be aborted.
 
@@ -894,8 +926,11 @@ value of this option, which is returned in every case.
 
 =item $DB = $Txn->OpenDB ( [ $dbname [, DBFLAGS ]] )
 
-This method opens a DataBase in the environment. This is only syntactic sugar
-for C<< LMDB_File->open(...) >>.
+This method opens a Database in the environment and returns a LMDB_File object that
+encapsulates both the Transaction and the Database handler.
+
+This is a convenience shortcut for C<< LMDB_File->new( $Txn, $Txn->open(...) ) >>
+for use when you don't need the handler for subsequent transactions.
 
 B<DBOPTIONS>, if provided,  should be a HASH reference with any of the
 following keys:
@@ -911,19 +946,21 @@ following keys:
 You can also call this method using its values, I<$dbname> and B<DBFLAGS>, 
 documented ahead.
 
-=back
+=item $dbi = $Txn->open( [ $dbname [, DBFLAGS ]] )
 
-=head1 LMDB_File
+This method open a Database in the environment and returns the low level
+Database handler, an integer.
 
-=head2 Constructor
+If you will need to use that Database handler in more than one transaction this
+is the method you should use, and simply call C<< LMDB_File->new(...) >> to obtain
+an object to operate in the database in a particular transaction. Otherwise maybe its
+simpler to call C<< $Txn->OpenDB(...) >> described above.
 
-  $DB = LMDB_File->open ( $Txn [, $dbname [, DBFLAGS ] ] )
-
-If provided I<$dbname>, will be the name of a named Data Base in the environment,
-if not provided (or if I<$dbname> is C<undef>), the opened Data Base will be
+If provided I<$dbname>, will be the name of a named Database in the environment,
+if not provided (or if I<$dbname> is C<undef>), the opened Database will be
 the unnamed (the default) one.
 
-B<DBFLAGS>, if provided, will set special options for this Data Base and
+B<DBFLAGS>, if provided, will set special options for this Database and
 can be specified by OR'ing the following flags:
 
 =over
@@ -964,6 +1001,30 @@ strings in reverse order.
 
 Create the named database if it doesn't exist. This option is not
 allowed in a read-only transaction or a read-only environment.
+
+=back
+
+=back
+
+=head1 LMDB_File
+
+In the C API all Database operations need both an active Transaction and a Database
+handler. To simplify those operations, in this Perl API you use a LMDB_File object
+that encapsulates both keeping the Transaction reference alive.
+
+=head2 Constructors
+
+=over
+
+=item $DB = LMDB_File->new( $Txn, $dbi )
+
+Associates a Transaction I<$Txn> with a previously opened Database handler I<$dbi>
+to use this OO API
+
+=item  $DB = LMDB_File->open ( $Txn [, $dbname [, DBFLAGS ] ] )
+
+An alternative to C<< $Txn->OpenDB(...) >> for open a Database and associate it with
+a Transaction in one call.
 
 =back
 
@@ -1081,7 +1142,7 @@ or use the cursor get method described below.
 
 =item $DB->del ( $key [, $data ] )
 
-Delete items from a database.
+Delete items from the database.
 
 This function removes key/data pairs from the database.
 
@@ -1114,7 +1175,7 @@ database is used.
 
 =item $DB->Alive
 
-Retunrs a TRUE value if the transaction in which this database was opened is
+Returns a TRUE value if the transaction in which this database was opened is
 still alive, i.e. not commited nor aborted yet, and FALSE otherwise.
 
 =item $Cursor = $DB->Cursor
@@ -1123,16 +1184,20 @@ Creates a new LMDB::Cursor object to work in the database, see L</LMDB::Cursor>
 
 =item $txn = $DB->Txn
 
-Returns the transaction that opened this database
+Returns the transaction associated
+
+=item $dbi = $DB->dbi
+
+Returns the low level Database handler
 
 =item $flags = $DB->flags
 
-Retrieve the DB flags for this database.
+Retrieve the DB flags for the associated database.
 
 =item $status = $DB->stat
 
-Returns a HASH reference with statistics for the database, the hash will contain
-the following keys:
+Returns a HASH reference with statistics for the associated database, the hash
+will contain the following keys:
 
 =over
 
@@ -1147,6 +1212,11 @@ the following keys:
 =item B<entries> Number of data items
 
 =back
+
+=item $DB->drop( [ REMOVE ] )
+
+If I<REMOVE> isn't provided or FALSE, the database is emptied. If I<REMOVE> is TRUE
+the database is closed and removed from the Environment.
 
 =back
 
@@ -1249,9 +1319,23 @@ Position at first key greater than or equal to specified key.
 =item $cursor->put($key, $data, WRITEFLAGS)
 
 This function stores key/data pairs into the database.
-If the function fails for any reason, the state of the cursor will be
-unchanged. If the function succeeds and an item is inserted into the
-database, the cursor is always positioned to refer to the newly inserted item.
+
+If the function succeeds and an item is inserted into the database,
+the cursor is always positioned to refer to the newly inserted item.
+
+If the function fails for any reason, the state of the cursor will undetermined.
+
+B<NOTE:> Earlier documentation incorrectly said errors would leave the
+state of the cursor unchanged.
+
+=back
+
+=item $cursor->del( [ DELFLAGS ] )
+
+This function deletes the key/data pair to which the cursor refers.
+
+If the database was opened with C<MDB_DUPSORT>, the optional parameter I<DELFLAGS>
+can be C<MDB_NODUPDATA> to deletes all of the data items for the current key.
 
 =back
 
@@ -1309,7 +1393,7 @@ data at hand.
 
 =item tie %hash, 'LMDB_File', $path [, $options ]
 
-The most common form.
+The most simple form.
 
 =item tie %hash, 'LMDB_File', $path, $flags, $mode
 
@@ -1325,12 +1409,12 @@ When you have an Environment object I<$Env> at hand.
 
 =item tie %hash, $DB
 
-When you have an opened database.
+When you have an opened Transaction encapsulated database.
 
 =back
 
 The first two forms will create and/or open the Environment at I<$path>,
-create a new Transaction and open a database in the Transaction.
+create a new Transaction and open a Database in the Transaction.
 
 If provided, I<$options> must be a HASH reference with options for both
 the Environment and the database.
@@ -1342,14 +1426,17 @@ In the case that you have already created a transaction or an environment,
 you can provide a HASH reference in B<DBOPTIONS> for options exclusively
 for the database.
 
+In the forms that needs to create a Transaction, this is setted for
+B<Autocommit> mode.
+
 =head1 AUTHOR
 
 Salvador Ortiz Garcia, E<lt>sortiz@cpan.orgE<gt>
 
 =head1 COPYRIGHT AND LICENSE
 
-Copyright (C) 2013 by Salvador Ortiz Garcia
-Copyright (C) 2013 by Matías Software Group, S.A. de C.V. 
+ Copyright (C) 2013-2014 by Salvador Ortiz García
+ Copyright (C) 2013-2014 by Matías Software Group, S.A. de C.V. 
 
 This library is free software; you can redistribute it and/or modify
 it under the terms of the Artistic License version 2.0, see L<LICENSE>.
