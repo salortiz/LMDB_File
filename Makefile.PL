@@ -2,8 +2,11 @@ use 5.010000;
 use strict;
 use ExtUtils::MakeMaker;
 use Config;
-# See lib/ExtUtils/MakeMaker.pm for details of how to influence
-# the contents of the Makefile that is written.
+
+if($Config{archname} =~ /686/) {
+    warn "liblmdb isn't supported in your platform, sorry.\n";
+    exit 0;
+}
 
 my $LNAME = 'LMDB';
 my $NAME = "${LNAME}_File";
@@ -23,18 +26,41 @@ my $myextlib = '';
 	warn "If that path isn't a standard one, you may need to set LD_LIBRARY_PATH!\n"
 	    if($libdata[4][0] =~ /.so/);
     } else {
-	warn "Will use my own copy of liblmdb.\n";
 	$myextlib = 'liblmdb/liblmdb$(LIB_EXT)';
     }
 
-    #LMDB needs pthreads, perl can provide it, but...
-    $LIBS .= ' -lpthread' unless $Config{useithreads} eq 'define';
     $LIBS .= ' -lrt' if $^O =~ /solaris/i;
+
+    if($myextlib) {
+	#lmdb's Makefile needs care
+	if($^O =~ /MSWin32|freebsd/i) {
+	    if($ENV{AUTOMATED_TESTING}) {
+		warn "Can't build liblmdb in $^O without human help, sorry\n";
+	    } else {
+		warn "Please install a recent version of liblmdb or try to build the included one.\n";
+	    }
+	    exit 0;
+	}
+	warn "Will try to build and use my included copy of liblmdb.\n";
+    }
+
+    if($^O =~ /MSWin32/) {
+
+    } else {
+	#LMDB needs pthread, so perl needs to be linked with.
+	unless ($Config{perllibs} =~ 'pthread') {
+	    warn "LMDB_File needs a perl linked with 'pthread'.\n" .
+		 "The module will be builded, but can't be loaded\n" .
+		 "without proper initialization.\n(See perl #122906)\n";
+	    $LIBS .= ' -lpthread';
+	}
+    }
 }
 
 WriteMakefile(
     NAME		=> $NAME,
     MIN_PERL_VERSION	=> '5.10.0',
+    CONFIGURE_REQUIRES	=> { 'ExtUtils::MakeMaker' => '6.64' },
     VERSION_FROM	=> "lib/$NAME.pm", # finds $VERSION
     PREREQ_PM		=> {}, # e.g., Module::Name => 1.1
     ABSTRACT_FROM	=> "lib/$NAME.pm", # retrieve abstract from module
@@ -42,7 +68,11 @@ WriteMakefile(
     DEFINE		=> '', # e.g., '-DHAVE_SOMETHING'
     XSPROTOARG		=> '-noprototypes',
     LICENSE		=> 'artistic_2',
-    TEST_REQUIRES	=> { 'Test::More' => 0, 'Test::Exception' => 0 },
+    TEST_REQUIRES	=> {
+	'Test::More' => 0,
+	'Test::Exception' => 0, 
+	'Test::ZeroCopy' => 0
+    },
     OBJECT		=> '$(O_FILES)', # link all the C files too
     LIBS		=> $LIBS,
     ($myextlib ? (
@@ -52,6 +82,7 @@ WriteMakefile(
 	INC		=> $INC
 	)
     ),
+    realclean		=> { FILES => 'const-*.inc' }
 );
 if  (eval {require ExtUtils::Constant; 1}) {
   # If you edit these definitions to change the constants used by this module,

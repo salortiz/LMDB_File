@@ -1,4 +1,4 @@
-LMDB_File version 0.06
+LMDB_File version 0.07
 ======================
 
 LMDB_File is a Perl wrapper around the OpenLDAP's LMDB (Lightning
@@ -13,10 +13,13 @@ compatible with others DBMs.
 
 PREREQUISITES
 
+Right now LMDB needs a 64bits platform.
+
 Before you can build LMDB_File you need to have the following installed
 on your system:
 
-    * Perl 5.10.0 or greater.
+    * Perl 5.10.0 or greater linked with pthreads.
+      See https://rt.perl.org/Public/Bug/Display.html?id=122906 
 
     * A working C compiler.
 
@@ -24,13 +27,15 @@ on your system:
 
       NOTE: At this time there is not yet an official release of the lmdb
       library, so this package includes a recent copy of the source code
-      from the git repository that Makefile.PL will compile and use for static
-      linking if the library and its header file isn't found installed.
+      from the git repository that Makefile.PL will _try_ to compile and use
+      for linking if the library and its header file isn't found installed.
+      The library isn't supported in some platforms and its Makefile may need
+      some work.
       
     * To run the test harness for this module:
       - You must make sure that the directory where you have untarred this module
       is NOT a network drive, e.g. NFS or AFS.
-      - You need the Test::Exception module installed.
+      - You need the Test::Exception and Test::ZeroCopy modules installed.
 
 INSTALLATION
 
