@@ -162,9 +162,21 @@ static int
 constant_11 (pTHX_ const char *name, IV *iv_return) {
   /* When generated this function returned values for the list of names given
      here.  However, subsequent manual editing may have added or removed some.
-     MDB_CURRENT MDB_DUPSORT MDB_INVALID MDB_RESERVE MDB_SET_KEY MDB_SUCCESS */
+     MDB_BAD_DBI MDB_BAD_TXN MDB_CURRENT MDB_DUPSORT MDB_INVALID MDB_RESERVE
+     MDB_SET_KEY MDB_SUCCESS */
   /* Offset 9 gives the best switch position.  */
   switch (name[9]) {
+  case 'B':
+    if (memEQ(name, "MDB_BAD_DBI", 11)) {
+    /*                        ^        */
+#ifdef MDB_BAD_DBI
+      *iv_return = MDB_BAD_DBI;
+      return PERL_constant_ISIV;
+#else
+      return PERL_constant_NOTDEF;
+#endif
+    }
+    break;
   case 'E':
     if (memEQ(name, "MDB_SET_KEY", 11)) {
     /*                        ^        */
@@ -221,6 +233,17 @@ constant_11 (pTHX_ const char *name, IV *iv_return) {
     /*                        ^        */
 #ifdef MDB_RESERVE
       *iv_return = MDB_RESERVE;
+      return PERL_constant_ISIV;
+#else
+      return PERL_constant_NOTDEF;
+#endif
+    }
+    break;
+  case 'X':
+    if (memEQ(name, "MDB_BAD_TXN", 11)) {
+    /*                        ^        */
+#ifdef MDB_BAD_TXN
+      *iv_return = MDB_BAD_TXN;
       return PERL_constant_ISIV;
 #else
       return PERL_constant_NOTDEF;
@@ -498,8 +521,8 @@ static int
 constant_14 (pTHX_ const char *name, IV *iv_return) {
   /* When generated this function returned values for the list of names given
      here.  However, subsequent manual editing may have added or removed some.
-     MDB_INTEGERDUP MDB_INTEGERKEY MDB_NEXT_NODUP MDB_NOMETASYNC MDB_PREV_NODUP
-     MDB_REVERSEDUP MDB_REVERSEKEY */
+     MDB_CP_COMPACT MDB_INTEGERDUP MDB_INTEGERKEY MDB_NEXT_NODUP MDB_NOMETASYNC
+     MDB_PREV_NODUP MDB_REVERSEDUP MDB_REVERSEKEY */
   /* Offset 6 gives the best switch position.  */
   switch (name[6]) {
   case 'E':
@@ -567,6 +590,17 @@ constant_14 (pTHX_ const char *name, IV *iv_return) {
       return PERL_constant_ISIV;
     }
     break;
+  case '_':
+    if (memEQ(name, "MDB_CP_COMPACT", 14)) {
+    /*                     ^              */
+#ifdef MDB_CP_COMPACT
+      *iv_return = MDB_CP_COMPACT;
+      return PERL_constant_ISIV;
+#else
+      return PERL_constant_NOTDEF;
+#endif
+    }
+    break;
   }
   return PERL_constant_NOTFOUND;
 }
@@ -575,34 +609,24 @@ static int
 constant_15 (pTHX_ const char *name, IV *iv_return) {
   /* When generated this function returned values for the list of names given
      here.  However, subsequent manual editing may have added or removed some.
-     MDB_CURSOR_FULL MDB_GET_CURRENT MDB_MAP_RESIZED MDB_NOOVERWRITE */
-  /* Offset 6 gives the best switch position.  */
-  switch (name[6]) {
-  case 'O':
-    if (memEQ(name, "MDB_NOOVERWRITE", 15)) {
-    /*                     ^               */
-#ifdef MDB_NOOVERWRITE
-      *iv_return = MDB_NOOVERWRITE;
+     MDB_BAD_VALSIZE MDB_CURSOR_FULL MDB_GET_CURRENT MDB_MAP_RESIZED
+     MDB_NOOVERWRITE */
+  /* Offset 4 gives the best switch position.  */
+  switch (name[4]) {
+  case 'B':
+    if (memEQ(name, "MDB_BAD_VALSIZE", 15)) {
+    /*                   ^                 */
+#ifdef MDB_BAD_VALSIZE
+      *iv_return = MDB_BAD_VALSIZE;
       return PERL_constant_ISIV;
 #else
       return PERL_constant_NOTDEF;
 #endif
     }
     break;
-  case 'P':
-    if (memEQ(name, "MDB_MAP_RESIZED", 15)) {
-    /*                     ^               */
-#ifdef MDB_MAP_RESIZED
-      *iv_return = MDB_MAP_RESIZED;
-      return PERL_constant_ISIV;
-#else
-      return PERL_constant_NOTDEF;
-#endif
-    }
-    break;
-  case 'R':
+  case 'C':
     if (memEQ(name, "MDB_CURSOR_FULL", 15)) {
-    /*                     ^               */
+    /*                   ^                 */
 #ifdef MDB_CURSOR_FULL
       *iv_return = MDB_CURSOR_FULL;
       return PERL_constant_ISIV;
@@ -611,11 +635,33 @@ constant_15 (pTHX_ const char *name, IV *iv_return) {
 #endif
     }
     break;
-  case 'T':
+  case 'G':
     if (memEQ(name, "MDB_GET_CURRENT", 15)) {
-    /*                     ^               */
+    /*                   ^                 */
       *iv_return = MDB_GET_CURRENT;
       return PERL_constant_ISIV;
+    }
+    break;
+  case 'M':
+    if (memEQ(name, "MDB_MAP_RESIZED", 15)) {
+    /*                   ^                 */
+#ifdef MDB_MAP_RESIZED
+      *iv_return = MDB_MAP_RESIZED;
+      return PERL_constant_ISIV;
+#else
+      return PERL_constant_NOTDEF;
+#endif
+    }
+    break;
+  case 'N':
+    if (memEQ(name, "MDB_NOOVERWRITE", 15)) {
+    /*                   ^                 */
+#ifdef MDB_NOOVERWRITE
+      *iv_return = MDB_NOOVERWRITE;
+      return PERL_constant_ISIV;
+#else
+      return PERL_constant_NOTDEF;
+#endif
     }
     break;
   }
@@ -770,7 +816,8 @@ constant (pTHX_ const char *name, STRLEN len, IV *iv_return, const char **pv_ret
 use ExtUtils::Constant qw (constant_types C_constant XS_constant);
 
 my $types = {map {($_, 1)} qw(IV PV)};
-my @names = (qw(MDB_APPEND MDB_APPENDDUP MDB_BAD_RSLOT MDB_CORRUPTED MDB_CREATE
+my @names = (qw(MDB_APPEND MDB_APPENDDUP MDB_BAD_DBI MDB_BAD_RSLOT MDB_BAD_TXN
+	       MDB_BAD_VALSIZE MDB_CORRUPTED MDB_CP_COMPACT MDB_CREATE
 	       MDB_CURRENT MDB_CURSOR_FULL MDB_DBS_FULL MDB_DUPFIXED
 	       MDB_DUPSORT MDB_FIXEDMAP MDB_INCOMPATIBLE MDB_INTEGERDUP
 	       MDB_INTEGERKEY MDB_INVALID MDB_KEYEXIST MDB_LAST_ERRCODE

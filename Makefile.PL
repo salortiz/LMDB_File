@@ -89,46 +89,54 @@ if  (eval {require ExtUtils::Constant; 1}) {
   # you will need to use the generated const-c.inc and const-xs.inc
   # files to replace their "fallback" counterparts before distributing your
   # changes.
-  my @names = (qw(MDB_APPEND MDB_APPENDDUP MDB_BAD_RSLOT MDB_CORRUPTED
-		 MDB_CREATE MDB_CURRENT MDB_CURSOR_FULL MDB_DBS_FULL
-		 MDB_DUPFIXED MDB_DUPSORT MDB_FIXEDMAP MDB_INCOMPATIBLE
-		 MDB_INTEGERDUP MDB_INTEGERKEY MDB_INVALID MDB_KEYEXIST
-		 MDB_LAST_ERRCODE MDB_MAPASYNC MDB_MAP_FULL MDB_MAP_RESIZED
-		 MDB_MULTIPLE MDB_NODUPDATA MDB_NOLOCK MDB_NOMEMINIT
-		 MDB_NOMETASYNC MDB_NOOVERWRITE MDB_NORDAHEAD
-		 MDB_NOSUBDIR MDB_NOSYNC MDB_NOTFOUND MDB_NOTLS MDB_PAGE_FULL
-		 MDB_PAGE_NOTFOUND MDB_PANIC MDB_RDONLY MDB_READERS_FULL
-		 MDB_RESERVE MDB_REVERSEDUP MDB_REVERSEKEY MDB_SUCCESS
-		 MDB_TLS_FULL MDB_TXN_FULL MDB_VERSION_FULL MDB_VERSION_MAJOR
-		 MDB_VERSION_MINOR MDB_VERSION_MISMATCH MDB_VERSION_PATCH
-		 MDB_WRITEMAP),
-	      {name=>"MDB_VERSION_STRING", type=>"PV", macro=>"1"},
-	      {name=>"MDB_VERSION_DATE", type=>"PV", macro=>"1"},
-              {name=>"MDB_FIRST", macro=>"1"},
-              {name=>"MDB_FIRST_DUP", macro=>"1"},
-              {name=>"MDB_GET_BOTH", macro=>"1"},
-              {name=>"MDB_GET_BOTH_RANGE", macro=>"1"},
-              {name=>"MDB_GET_CURRENT", macro=>"1"},
-              {name=>"MDB_GET_MULTIPLE", macro=>"1"},
-              {name=>"MDB_LAST", macro=>"1"},
-              {name=>"MDB_LAST_DUP", macro=>"1"},
-              {name=>"MDB_NEXT", macro=>"1"},
-              {name=>"MDB_NEXT_DUP", macro=>"1"},
-              {name=>"MDB_NEXT_MULTIPLE", macro=>"1"},
-              {name=>"MDB_NEXT_NODUP", macro=>"1"},
-              {name=>"MDB_PREV", macro=>"1"},
-              {name=>"MDB_PREV_DUP", macro=>"1"},
-              {name=>"MDB_PREV_NODUP", macro=>"1"},
-              {name=>"MDB_SET", macro=>"1"},
-              {name=>"MDB_SET_KEY", macro=>"1"},
-              {name=>"MDB_SET_RANGE", macro=>"1"});
+  my @names = (
+    qw(MDB_APPEND MDB_APPENDDUP
+    MDB_BAD_RSLOT MDB_BAD_DBI MDB_BAD_TXN MDB_BAD_VALSIZE
+    MDB_CP_COMPACT
+    MDB_CORRUPTED MDB_CREATE MDB_CURRENT MDB_CURSOR_FULL
+    MDB_DBS_FULL MDB_DUPFIXED MDB_DUPSORT
+    MDB_FIXEDMAP
+    MDB_INCOMPATIBLE MDB_INTEGERDUP MDB_INTEGERKEY MDB_INVALID
+    MDB_KEYEXIST MDB_LAST_ERRCODE
+    MDB_MAPASYNC MDB_MAP_FULL MDB_MAP_RESIZED MDB_MULTIPLE
+    MDB_NODUPDATA MDB_NOLOCK MDB_NOMEMINIT
+    MDB_NOMETASYNC MDB_NOOVERWRITE MDB_NORDAHEAD
+    MDB_NOSUBDIR MDB_NOSYNC MDB_NOTFOUND MDB_NOTLS
+    MDB_PAGE_FULL MDB_PAGE_NOTFOUND MDB_PANIC
+    MDB_RDONLY MDB_READERS_FULL MDB_RESERVE MDB_REVERSEDUP MDB_REVERSEKEY
+    MDB_SUCCESS
+    MDB_TLS_FULL MDB_TXN_FULL
+    MDB_VERSION_FULL MDB_VERSION_MAJOR MDB_VERSION_MINOR
+    MDB_VERSION_MISMATCH MDB_VERSION_PATCH
+    MDB_WRITEMAP),
+    {name=>"MDB_VERSION_STRING", type=>"PV", macro=>"1"},
+    {name=>"MDB_VERSION_DATE", type=>"PV", macro=>"1"},
+    {name=>"MDB_FIRST", macro=>"1"},
+    {name=>"MDB_FIRST_DUP", macro=>"1"},
+    {name=>"MDB_GET_BOTH", macro=>"1"},
+    {name=>"MDB_GET_BOTH_RANGE", macro=>"1"},
+    {name=>"MDB_GET_CURRENT", macro=>"1"},
+    {name=>"MDB_GET_MULTIPLE", macro=>"1"},
+    {name=>"MDB_LAST", macro=>"1"},
+    {name=>"MDB_LAST_DUP", macro=>"1"},
+    {name=>"MDB_NEXT", macro=>"1"},
+    {name=>"MDB_NEXT_DUP", macro=>"1"},
+    {name=>"MDB_NEXT_MULTIPLE", macro=>"1"},
+    {name=>"MDB_NEXT_NODUP", macro=>"1"},
+    {name=>"MDB_PREV", macro=>"1"},
+    {name=>"MDB_PREV_DUP", macro=>"1"},
+    {name=>"MDB_PREV_NODUP", macro=>"1"},
+    {name=>"MDB_SET", macro=>"1"},
+    {name=>"MDB_SET_KEY", macro=>"1"},
+    {name=>"MDB_SET_RANGE", macro=>"1"}
+  );
   ExtUtils::Constant::WriteConstants(
-                                     NAME         => $NAME,
-                                     NAMES        => \@names,
-                                     DEFAULT_TYPE => 'IV',
-                                     C_FILE       => 'const-c.inc',
-                                     XS_FILE      => 'const-xs.inc',
-                                  );
+     NAME         => $NAME,
+     NAMES        => \@names,
+     DEFAULT_TYPE => 'IV',
+     C_FILE       => 'const-c.inc',
+     XS_FILE      => 'const-xs.inc',
+  );
 
 }
 else {
