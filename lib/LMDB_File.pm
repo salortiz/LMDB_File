@@ -79,59 +79,65 @@ sub new {
     my ($proto, $path, $eflags) = @_;
     create(my $self);
     return unless $self;
-    $eflags = { flags => $eflags } unless ref $eflags;
-    if($eflags) {
-	$eflags->{mapsize} and $self->set_mapsize($eflags->{mapsize})
-	    and return;
-	$eflags->{maxdbs} and $self->set_maxdbs($eflags->{maxdbs})
-	    and return;
-	$eflags->{maxreaders} and $self->set_maxreaders($eflags->{maxreaders})
-	    and return;
+    $eflags = { flags => ($eflags || 0) } unless ref $eflags;
+    $eflags->{mapsize} and $self->set_mapsize($eflags->{mapsize})
+	and return;
+    $eflags->{maxdbs} and $self->set_maxdbs($eflags->{maxdbs})
+	and return;
+    $eflags->{maxreaders} and $self->set_maxreaders($eflags->{maxreaders})
+	and return;
+    if($^O =~ /openbsd/) {
+	# OpenBSD lacks an unified buffer cache (UBC) so LMDB only works
+	# with MDB_WRITEMAP set when not in read-only mode
+	$eflags->{flags} |= LMDB_File::MDB_WRITEMAP()
+	    unless $eflags->{flags} & LMDB_File::MDB_RDONLY();
     }
     $self->open($path, $eflags->{flags}, $eflags->{mode} || 0600)
 	and return;
     warn "Created LMDB::Env $$self\n" if $DEBUG;
-    $Envs{$$self} = { Txns => [] };
     return $self;
 }
 
 sub Clean {
     my $self = shift;
-    my $txl = $Envs{ $$self }{Txns} or return;
+    my $txl = $Envs{ $$self }[0] or return;
     if(@$txl) {
 	Carp::carp("LMDB: Aborting $#$txl transactions in $$self.");
 	$txl->[$#$txl]->abort;
     }
-    $Envs{$$self}{Txns} = [];
+    $Envs{ $$self }[0] = [];
 }
 
 sub DESTROY {
     my $self = shift;
-    my $txl = $Envs{ $$self }{Txns} or return;
-    if(@$txl) {
-	Carp::carp("LMDB: OOPS! Destroying an active environment!");
-	$Envs{$$self}{Txns} = undef;
+    if(my $evd = delete $Envs{ $$self }) {
+	my $txl = $evd->[0];
+	if(@$txl) { # Only posible at global destruction.
+	    Carp::carp("LMDB: OOPS! Destroying an active environment!");
+	    Carp::carp("LMDB: Aborting $#$txl transactions in $$self.");
+	    $txl->[$#$txl]->abort;
+	}
     }
     $self->close;
-    delete $Envs{$$self};
-    warn "Closed LMDB::Env $$self\n" if $DEBUG;
+    warn "Closed LMDB::Env $$self (remains @{[scalar keys %Envs]})\n"
+	if $DEBUG;
 }
 
 sub BeginTxn {
     my $self = shift;
     $self->get_flags(my $eflags);
     my $tflags = shift || ($eflags & LMDB_File::MDB_RDONLY());
-    my $txl = $Envs{ $$self }{Txns};
+    my $txl = $Envs{ $$self }[0];
     warn "BeginTxn $$self($$), deep: ", scalar(@$txl), "\n" if $DEBUG;
     return $txl->[0]->SubTxn($tflags) if @$txl;
-    return LMDB::Txn->new($self, $tflags);
+    LMDB::Txn->new($self, $tflags);
 }
 
 sub CLONE {
-    # After a thread is created all Txns of parent thread are forgot 
-    $_->{Txns} = [] for values %Envs;
+    # After a thread is created all Txns of parent thread are forgot
+    $_->[0] = [] for values %Envs;
     _clone();
-    return 1;
+    1;
 }
 
 package LMDB::Txn;
@@ -141,7 +147,7 @@ my %Cursors;
 
 sub new {
     my ($parent, $env, $tflags) = @_;
-    my $txl = $Envs{$$env}{Txns};
+    my $txl = $Envs{ $$env }[0];
     Carp::croak("Transaction active, should be subtransaction")
 	if !ref($parent) && @$txl;
     _begin($env, ref($parent) && $parent, $tflags, my $self);
@@ -159,39 +165,40 @@ sub new {
 
 sub SubTxn {
     my $self = shift;
+    if($^O =~ /openbsd/) {
+	# Needs MDB_WRITEMAP so
+	Carp::croak("Subtransactions are unsupported in this OS");
+    }
     my $tflags = shift || 0;
     return $self->new($self->env, $tflags);
 }
 
 sub DESTROY {
     my $self = shift;
-    my $txp = $Txns{$$self} or return;
-    if($txp->{Active}) {
-	if(!$txp->{RO} && $txp->{AC}) {
-	    warn "LMDB: Destroying an active transaction, commiting $$self...\n"
-		if $DEBUG;
-	    $self->commit;
-	} else {
-	    warn "LMDB: Destroying an active transaction, aborting $$self...\n"
-		if $DEBUG;
-	    $self->abort;
-	}
+    my $td = $Txns{ $$self } or return;
+    if($td->{Active} && !$td->{RO} && $td->{AC}) {
+	warn "LMDB: Destroying an active transaction, commiting $$self...\n"
+	    if $DEBUG;
+	$self->commit;
+    } else {
+	warn "LMDB: Destroying an active transaction, aborting $$self...\n"
+	    if $DEBUG;
+	$self->abort;
     }
 }
 
 sub _prune {
     my $self = shift;
     my $eid = shift;
-    my $txl = $Envs{ $eid }{Txns};
-    while(my $rel = shift @$txl) {
-	delete $Cursors{$_} for keys %{ $Txns{$$rel}{Cursors} };
-	$Txns{$$rel}{Env} = undef; # Free environment
-	delete $Txns{$$rel};
-	last if $$rel == $$self;
+    if(my $txl = $Envs{ $eid } && $Envs{ $eid }[0]) {
+	while(my $rel = shift @$txl) {
+	    my $td =  delete $Txns{ $$rel };
+	    delete $Cursors{$_} for keys %{ $td->{Cursors} };
+	    last if $$rel == $$self;
+	}
+	warn "LMDB::Txn: Txns list deep: @{[scalar @$txl]}\n" if $DEBUG > 2;
     }
-    $Envs{ $eid }{Txns} = [] unless scalar(@$txl); # Paranoia
-    warn "LMDB::Txn: $$self($$) finalized in $eid, deep: ", scalar(@$txl), "\n"
-	if $DEBUG > 1;
+    warn "LMDB::Txn: $$self($$) finalized in $eid\n" if $DEBUG > 1;
     $$self = 0;
 }
 
@@ -201,7 +208,6 @@ sub abort {
 	Carp::carp("Terminated transaction");
 	return;
     }
-    return unless $Txns{$$self}{Active}; # Ignore unless active
     my $eid = $self->_env;
     $self->_abort;
     warn "LMDB::Txn $$self aborted\n" if $DEBUG;
@@ -210,8 +216,8 @@ sub abort {
 
 sub commit {
     my $self = shift;
-    Carp::croak("Terminated transaction") unless $Txns{$$self};
-    Carp::croak("Not an active transaction") unless $Txns{$$self}{Active};
+    my $td = $Txns{ $$self } or Carp::croak("Terminated transaction");
+    Carp::croak("Not an active transaction") unless $td->{Active};
     my $eid = $self->_env;
     $self->_commit;
     warn "LMDB::Txn $$self commited\n" if $DEBUG;
@@ -220,7 +226,7 @@ sub commit {
 
 sub Flush {
     my $self = shift;
-    my $td = $Txns{$$self} or Carp::croak("Terminated transaction");
+    my $td = $Txns{ $$self } or Carp::croak("Terminated transaction");
     Carp::croak("Not an active transaction") unless $td->{Active};
     $self->_commit;
     # This depends on malloc order, beware!
@@ -231,28 +237,18 @@ sub Flush {
 
 sub reset {
     my $self = shift;
-    my $td = $Txns{ $$self } or Carp::croak("Not an active transaction");
+    my $td = $Txns{ $$self } or Carp::croak("Terminated transaction");
+    Carp::croak("Not a read-only transaction") unless $td->{RO};
     $self->_reset if $td->{Active};
     $td->{Active} = 0;
 }
 
 sub renew {
     my $self = shift;
-    my $td = $Txns{$$self} or Carp::croak("Not an active transaction");
+    my $td = $Txns{ $$self } or Carp::croak("Terminated transaction");
     $self->_reset if $td->{Active};
     $self->_renew;
     $td->{Active} = 1;
-}
-
-sub open {
-    my($txn, $name, $flags) = @_;
-     $flags ||= 0;
-    Carp::croak("Not an active transaction") unless $Txns{$$txn};
-    Carp::croak("Not the current child transaction")
-	unless(${$Envs{ $txn->_env }{Txns}[0]} == $$txn);
-    _dbi_open($txn, $name, $flags & $dbflmask, my $dbi);
-    warn "Opened dbi $dbi\n" if $dbi && $DEBUG;
-    return $dbi;
 }
 
 sub OpenDB {
@@ -263,16 +259,31 @@ sub OpenDB {
 
 sub env {
     my $self = shift;
-    return $Txns{$$self} && $Txns{$$self}{Env};
+    $Txns{$$self} && $Txns{$$self}{Env};
 }
 
 sub AutoCommit {
     my $self = shift;
-    my $td = $Txns{$$self} or Carp::croak("Terminated transaction");
+    my $td = $Txns{ $$self } or Carp::croak("Terminated transaction");
     my $prev = $td->{AC};
     $td->{AC} = shift if(@_);
-    return $prev;
+    $prev;
 }
+
+# Fast low-level dbi API
+sub open {
+    my($txn, $name, $flags) = @_;
+     $flags ||= 0;
+    Carp::croak("Not an alive transaction") unless $Txns{ $$txn };
+    Carp::croak("Not the current child transaction")
+	unless(${$Envs{ $txn->_env }[0][0]} == $$txn);
+    _dbi_open($txn, $name, $flags & $dbflmask, my $dbi);
+    warn "Opened dbi $dbi\n" if $dbi && $DEBUG;
+    return $dbi;
+}
+*get = \&LMDB_File::_get;
+*put = \&LMDB_File::_put;
+*del = \&LMDB_File::_del;
 
 sub CLONE_SKIP {
     # All LMDB Transactions are usable only in the thread that create it
@@ -334,19 +345,18 @@ sub _chkalive {
     my $self = shift;
     my $txn = $self->[0];
     Carp::croak("Not an active transaction")
-	unless($txn && $Txns{ $$txn });
+	unless($txn && ($Txns{ $$txn } || undef $self->[0]) && $Txns{ $$txn }{Active} );
     # A parent transaction and its cursors may not issue any other operations than
     # mdb_txn_commit and mdb_txn_abort while it has active child transactions.
     Carp::croak("Not the current child transaction")
-	unless(${$Envs{ $txn->_env }{Txns}[0]} == $$txn);
-    _setcurrent($self);
-    return $txn, $self->[1];
+	unless(${$Envs{ $txn->_env }[0][0]} == $$txn);
+    $txn, $self->[1];
 }
 
 sub Alive {
     my $self = shift;
     my $txn = $self->[0];
-    return $txn && (($Txns{$$txn} && $self->[1]) || undef $self->[0]);
+    $txn && (($Txns{ $$txn } && $self->[1]) || undef $self->[0]);
 }
 
 sub flags {
@@ -359,33 +369,48 @@ sub put {
     my $self = shift;
     warn "put: '$_[0]' => '$_[1]'\n" if $DEBUG > 2;
     _put(_chkalive($self), @_);
-    return $_[1];
+    $_[1];
 }
 
 sub get {
     warn "get: '$_[1]'\n" if $DEBUG > 2;
-    return _get(_chkalive($_[0]), $_[1], $_[2]) if @_ > 2;
+    my($txn, $dbi) = _chkalive($_[0]);
+    return _get($txn, $dbi, $_[1], $_[2]) if @_ > 2;
+    my($res, $data);
+    {
+	local $die_on_err = 0;
+	$res = _get($txn, $dbi, $_[1], $data);
+    }
+    croak($@) if $res && $die_on_err && $res != MDB_NOTFOUND() or undef $@;
+    $data;
+}
+
+sub Rget {
+    warn "get: '$_[1]'\n" if $DEBUG > 2;
     local $die_on_err = 0;
     _get(_chkalive($_[0]), $_[1], my $data);
-    return $data;
+    return \$data;
+}
+
+
+sub del {
+    _del(_chkalive($_[0]), $_[1], $_[2]);
 }
 
 sub stat {
     _stat(_chkalive($_[0]));
 }
 
-sub del {
-    _del(_chkalive($_[0]), $_[1], $_[2] || undef);
-}
-
 sub set_dupsort {
     my $self = shift;
-    $self->[3] = shift;
+    my $txn = $self->[0];
+    $Envs{ $txn->_env }[1][ $self->[1] ] = shift;
 }
 
 sub set_compare {
     my $self = shift;
-    $self->[2] = shift;
+    my $txn = $self->[0];
+    $Envs{ $txn->_env }[2][ $self->[1] ] = shift;
 }
 
 sub Cursor {
@@ -396,12 +421,12 @@ sub Cursor {
     $Txns{$$txn}{Cursors}{$$cursor} = 1;
     $Cursors{$$cursor} = $DB;
     warn "Cursor opened for #$dbi\n" if $DEBUG;
-    return $cursor;
+    $cursor;
 }
 
-sub Txn { $_[0][0]; }
+sub Txn : lvalue { $_[0][0]; }
 
-sub dbi { $_[0][1]; }
+sub dbi : lvalue { $_[0][1]; }
 
 sub drop {
     _drop(_chkalive($_[0]), $_[1] || 0);
@@ -434,24 +459,22 @@ sub FETCH {
 	local $die_on_err = 0;
 	$res = _get(_chkalive($self), $key, $data);
     }
-    croak($@) if $res && $res != MDB_NOTFOUND() && $die_on_err;
-    return $data;
+    croak($@) if $res && $die_on_err && $res != MDB_NOTFOUND() or undef $@;
+    $data;
 }
 
 *STORE = \&put;
+*CLEAR = \&drop;
 
 sub UNTIE {
     my $self = shift;
     my $txn = $self->[0];
     return unless($txn && ($Txns{ $$txn } || undef($self->[0])));
-    delete $self->[2]; # Free cmp callback
-    delete $self->[3]; # Free dcmp callback
-    delete $self->[4]; # Free cursor
+    delete $self->[2]; # Free cursor
 }
 
 sub SCALAR {
-    _chkalive(my $self = shift);
-    return !$self->[1]->stat->{entries};
+    return $_[0]->stat->{entries};
 }
 
 sub EXISTS {
@@ -473,27 +496,43 @@ sub DELETE {
 
 sub FIRSTKEY {
     my $self = shift;
-    $self->[4] = $self->Cursor;
+    $self->[2] = $self->Cursor;
     $self->NEXTKEY;
 }
 
+# I hop some day tie hashed are optimized
 sub NEXTKEY {
     my($self, $key) = @_;
     my $op = defined($key) ? MDB_NEXT() : MDB_FIRST() ;
     local $die_on_err = 0;
-    my $res = $self->[4]->get($key, my $data, $op);
+    my $res = $self->[2]->get($key, my $data, $op);
     if($res == MDB_NOTFOUND()) {
 	return;
     }
     return wantarray ? ($key, $data) : $key;
 }
 
+sub _mydbflags {
+    my($envid, $dbi, $bit) = @_;
+    my $cm = \vec($Envs{ $envid }[3], $dbi, LMDB_OFLAGN());
+    my $om = $$cm;
+    if(@_ > 3) {
+	$$cm = $_[3] ? ($$cm | $bit) : ($$cm & ~$bit);
+	_resetcurdbi();
+    }
+    return $om & $bit;
+}
+
 sub ReadMode {
     my $self = shift;
-    _chkalive($self);
-    my $cm = $self->[5];
-    $self->[5] = shift if @_;
-    $cm;
+    my($txn, $dbi) = _chkalive($self);
+    _mydbflags($txn->_env, $dbi, 1, @_);
+}
+
+sub UTF8 {
+    my $self = shift;
+    my($txn, $dbi) = _chkalive($self);
+    _mydbflags($txn->_env, $dbi, 2, @_);
 }
 
 1;
@@ -581,7 +620,7 @@ B<LMDB::Cursor> class.
 
 A LMDB's B<Database> handler (MDB_dbi in C) will be exposed as a simple
 integer, but because in LMDB all Database operations needs both a Transaction
-and a Database handler, LMDB_File provides you use a convenient B<LMDB_File>
+and a Database handler, LMDB_File provides you a convenient L</LMDB_File>
 object that encapsulates both and mimic the syntax of other *_File modules.
 
 
@@ -613,9 +652,9 @@ will let that the object get out of scope.
 
 =head2 Constructor
 
-$Env = LMDB::Env->new ( $path [, ENVOPTIONS ] ) 
+$Env = LMDB::Env->new ( $path [, ENVOPTIONS ] )
 
-Creates a new C<LMDB::Env> object and returns it. It encapsulates both LMDB's 
+Creates a new C<LMDB::Env> object and returns it. It encapsulates both LMDB's
 C<mdb_env_create> and C<mdb_env_open> functions.
 
 I<$path> is the directory in which the database files reside. This directory
@@ -662,7 +701,7 @@ is ignored on Windows. It defaults to 0600
 
 =item flags      => ENVFLAGS
 
-Set special options for this environment. This option, if provided, 
+Set special options for this environment. This option, if provided,
 can be specified by OR'ing the following flags:
 
 =over
@@ -761,7 +800,7 @@ Copy an LMDB environment to the specified I<$path>
 
 =item $Env->copyfd ( HANDLE )
 
-Copy an LMDB environment to the specified HANDLE.
+Copy an LMDB environment to the specified B<HANDLE>.
 
 =item $status = $Env->stat
 
@@ -821,7 +860,7 @@ and with C<MDB_MAPASYNC> they will be asynchronous.
 As noted above, some environment flags can be changed at any time.
 
 I<BITMASK> is the flags to change, bitwise OR'ed together.
-I<BOOL> TRUE set the flags, FALSE clears them. 
+I<BOOL> TRUE set the flags, FALSE clears them.
 
 =item $Env->get_flags ( $flags )
 
@@ -883,15 +922,28 @@ Commit the transaction, terminating the transaction.
 
 =item $Txn->reset
 
-Reset the transaction.
+Reset a read-only transaction.
 
-TO BE DOCUMENTED
+Abort the transaction like C<< $Txn->abort() >>, but keep the transaction
+handle in the inactive state so C<< $Txn->renew() >> may reactivate the handle.
+
+This saves allocation overhead if the process will start a new read-only
+transaction soon, and also saves locking overhead if MDB_NOTLS is in use.
+
+The reader table lock is released, but the table slot stays tied to its thread or
+Transaction. Use C<< $Txn->abort() >> to discard a reseted handle, and to free
+its lock table slot if MDB_NOTLS is in use.
 
 =item $Txn->renew
 
-Renew the transaction.
+Renew a read-only transaction.
 
-TO BE DOCUMENTED
+This acquires a new reader lock for a transaction handle that had been
+inactivated by C<< $Txn->reset() >>. It must be called before an inactive
+(reseted) transaction may be used again.
+
+In this Perl implementation if you call C<< $Txn->renew() >> in an active
+Transaction the method internally calls C<< $Txn->reset() >> for you.
 
 =item $Env = $Txn->env
 
@@ -922,6 +974,7 @@ are nested.
 When I<BOOL> is provided, it sets the behavior of the transaction when going
 out of scope: I<BOOL> TRUE makes arrangements for the transaction to be auto
 committed and I<BOOL> FALSE returns to the default behavior: to be aborted.
+
 If you don't provide I<BOOL>, you are only interested in knowing the current
 value of this option, which is returned in every case.
 
@@ -929,11 +982,11 @@ value of this option, which is returned in every case.
 
 =item $DB = $Txn->OpenDB ( [ $dbname [, DBFLAGS ]] )
 
-This method opens a Database in the environment and returns a LMDB_File object that
-encapsulates both the Transaction and the Database handler.
+This method opens a Database in the environment and returns a L</LMDB_File> object
+that encapsulates both the Transaction and the Database handler.
 
 This is a convenience shortcut for C<< LMDB_File->new( $Txn, $Txn->open(...) ) >>
-for use when you don't need the handler for subsequent transactions.
+for use when you want to use the hi-level LMDB_File's OO approach.
 
 B<DBOPTIONS>, if provided,  should be a HASH reference with any of the
 following keys:
@@ -946,18 +999,13 @@ following keys:
 
 =back
 
-You can also call this method using its values, I<$dbname> and B<DBFLAGS>, 
+You can also call this method using its values, I<$dbname> and B<DBFLAGS>,
 documented ahead.
 
-=item $dbi = $Txn->open( [ $dbname [, DBFLAGS ]] )
+=item $dbi = $Txn->open ( [ $dbname [, DBFLAGS ]] )
 
 This method open a Database in the environment and returns the low level
 Database handler, an integer.
-
-If you will need to use that Database handler in more than one transaction this
-is the method you should use, and simply call C<< LMDB_File->new(...) >> to obtain
-an object to operate in the database in a particular transaction. Otherwise maybe its
-simpler to call C<< $Txn->OpenDB(...) >> described above.
 
 If provided I<$dbname>, will be the name of a named Database in the environment,
 if not provided (or if I<$dbname> is C<undef>), the opened Database will be
@@ -1005,15 +1053,48 @@ strings in reverse order.
 Create the named database if it doesn't exist. This option is not
 allowed in a read-only transaction or a read-only environment.
 
+After successfully commit the transaction that created the Database, it will remains
+opened in the Environment so you can reuse I<$dbi> in other transactions.
+
 =back
+
+If you will need to use that Database handler in more than one transaction or want
+to use a more traditional (in LMDB's point of view) approach, this the method you
+should use.
+
+To operate in the opened database with the returned I<$dbi> handler you can use the
+methods described bellow or call C<< LMDB_File->new(...) >> to obtain
+a L</LMDB_File> object to operate the database in a particular transaction.
+
+=item $Txn->put ( $dbi, $key, $data [, WRITEFLAGS [, $length ] )
+
+Store items into the database I<$dbi>
+
+Provided for when your main concern is the raw speed.
+
+For details of the other arguments, please see the method of the same name
+in LMDB_File below.
+
+=item $Txn->get ( $dbi, $key, $data )
+
+Get items from the database I<$dbi>
+
+Provided for when your main concern is the raw speed.
+
+For details of the other arguments, please see the method of the same name
+in LMDB_File below.
 
 =back
 
 =head1 LMDB_File
 
-In the C API all Database operations need both an active Transaction and a Database
-handler. To simplify those operations, in this Perl API you use a LMDB_File object
-that encapsulates both keeping the Transaction reference alive.
+In the LMDB C API all Database operations need both an active Transaction
+and a Database handler. To simplify those operations and be syntax compatible with
+others *_File modules, this Perl API provides you a B<LMDB_File>
+object that encapsulates both and implements some hi-level extensions.
+
+LMDB_File's methods, in contrast to the LMDB::Txn's ones of the same name, perform some
+checks before calling the low-level C API.
 
 =head2 Constructors
 
@@ -1035,7 +1116,7 @@ a Transaction in one call.
 
 =over
 
-=item $DB->put ( $key, $data [, WRITEFLAGS ] )
+=item $DB->put ( $key, $data [, WRITEFLAGS [, $length ] ] )
 
 Store items into a database.
 
@@ -1047,7 +1128,7 @@ duplicates are allowed
 I<$key> is the key to store in the database and I<$data> the data to store.
 
 B<WRITEFLAGS>, if provided, will set special options for this operation and
-can be one following flags:
+can be one of following flags:
 
 =over
 
@@ -1065,16 +1146,21 @@ database.
 
 The function will return MDB_KEYEXIST if the key already appears in the database,
 even if	the database supports duplicates (#MDB_DUPSORT). The I<$data>
-parameter will be set to point to the existing item.
+parameter will be set to the existing item.
 
 =item MDB_RESERVE
 
-B<NOTE:> This isn't yet usable from Perl, stay tunned.
+Reserve space for data of the given size in I<$length>, but don't copy anything.
+Instead, return in I<$data> a magical scalar with a pointer to the reserved space,
+which the caller can fill in later, but before the next update operation
+or the transaction ends. This saves an extra memcpy if the data is being generated
+later.
 
-Reserve space for data of the given size, but don't copy the given data.
-Instead, return a pointer to the reserved space, which the caller can fill
-in later, but before the next update operation or the transaction ends.
-This saves an extra memcpy if the data is being generated later.
+In this particular case, you need to pass the extra I<$length> parameter to
+specify how many bytes to reserve.
+
+Please read about the C<< $DB->ReadMode >> method caveats bellow for details that
+apply to the magical scalar returned in I<$data> in this case.
 
 =item MDB_APPEND
 
@@ -1110,39 +1196,6 @@ an error if not.
 In the simpler, more "perlish" one-argument form, the method returns the value
 associated with I<$key> in the database or C<undef> if no such value exists.
 
-This form is implemented by locally setting $die_on_err to FALSE.
-
-=item $DB->ReadMode ( MODE )
-
-This method allows you to modify the behavior of "get" (read) operations on
-the database.
-
-The C documentation for the C<mdb_get> function states that:
-
-  The memory pointed to by the returned values is owned by the
-  database. The caller need not dispose of the memory, and may not
-  modify it in any way. For values returned in a read-only transaction
-  any modification attempts will cause a SIGSEGV.
-
-So this module implements two modes of operation for its "get" methods 
-and you can select between them with this method.
-
-When MODE is 0 (or any FALSE value) a default "safe" mode is used in which the
-data value found in the database is copied to the scalar returned, so you can do
-anything you want to that scalar without side effects.
-
-But when MODE is 1 (or, in the current implementation, any TRUE value) a sort
-of hack is used to avoid the memory copy and the scalar returned will hold only a
-pointer to the data value found. This is much faster and uses less memory, especially
-when used with large values, but there are a few caveats: In a read-only transaction
-the value is valid only until the end of the transaction, and in a read-write
-transaction the value is valid only until the next write operation (because any
-write operation can potentially modify the in-memory btree).
-
-B<NOTE:> In order to achieve the zero-copy behavior desired by setting L<ReadMode>
-to TRUE, you must use the two-argument form of get (C<< $DB->get ( $key, $data ) >>)
-or use the cursor get method described below.
-
 =item $DB->del ( $key [, $data ] )
 
 Delete items from the database.
@@ -1176,23 +1229,6 @@ are used, otherwise data corruption may occur. The same comparison function
 must be used by every program accessing the database, every time the
 database is used.
 
-=item $DB->Alive
-
-Returns a TRUE value if the transaction in which this database was opened is
-still alive, i.e. not commited nor aborted yet, and FALSE otherwise.
-
-=item $Cursor = $DB->Cursor
-
-Creates a new LMDB::Cursor object to work in the database, see L</LMDB::Cursor>
-
-=item $txn = $DB->Txn
-
-Returns the transaction associated
-
-=item $dbi = $DB->dbi
-
-Returns the low level Database handler
-
 =item $flags = $DB->flags
 
 Retrieve the DB flags for the associated database.
@@ -1220,6 +1256,122 @@ will contain the following keys:
 
 If I<REMOVE> isn't provided or FALSE, the database is emptied. If I<REMOVE> is TRUE
 the database is closed and removed from the Environment.
+
+=item $DB->Alive
+
+Returns a TRUE value if the associated transaction is still alive, i.e.
+not commited nor aborted yet, and FALSE otherwise.
+
+=item $Cursor = $DB->Cursor
+
+Creates a new LMDB::Cursor object to work in the database, see L</LMDB::Cursor>
+
+=item $txn = $DB->Txn
+
+Returns the transaction, an L</LMDB::Txn> object, associated with I<$DB>.
+
+    $DB->Txn->commit; # Commit the current transaction.
+
+If the method C<< $DB->Alive >> has returned FALSE before, this method will return
+C<undef>.
+
+You can use C<< $DB->Txn >> as an lvalue to change the associated Transaction,
+but remember that, if C<$DB> is holding the last reference of the current
+transaction, that transaction will be terminated.
+
+    $DB->Txn->commit; # Commit current
+    $DB->Alive;       # FALSE
+    ...
+    $DB->Txn = $Env->BeginTxn; # Start another, with same Database
+    ...
+
+=item $dbi = $DB->dbi
+
+Returns the low level Database handler associated with I<$DB>
+
+You can use C<< $DB->dbi >> as an lvalue to switch the associated Datbase hander:
+
+  $DB->dbi = $other_dbi;
+
+=item $DB->ReadMode ( [ MODE ] )
+
+This method allows you to modify the behavior of "get" (read) operations on
+the database.
+
+The C documentation for the C<mdb_get> function states that:
+
+  The memory pointed to by the returned values is owned by the
+  database. The caller need not dispose of the memory, and may not
+  modify it in any way. For values returned in a read-only transaction
+  any modification attempts will cause a SIGSEGV.
+
+So this module implements two modes of operation for its "get" methods
+and you can select between them with this method.
+
+When MODE is 0 (or any FALSE value) a default "safe" mode is used in which the
+data value found in the database is copied to the scalar returned, so you can do
+anything you want to that scalar without side effects.
+
+But when MODE is 1 (or, in the current implementation, any TRUE value) a sort
+of hack is used to avoid the memory copy and a magical scalar returned that hold only a
+pointer to the data value found. This is much faster and uses less memory, especially
+when used with large values.
+
+In a environment opened with MDB_WRITEMAP and in a transaction without the MDB_RDONLY
+flag, you are allowed to modify the returned scalar, and the modifications are
+reflected to the associated memory block and preserved in the database when the
+transaction is commited. Otherwise the magical scalar is marked READ-ONLY and any
+attempt to modify it (other than reuse it in another C<< $DB->get >> ),
+will cause perl to croak.
+
+B<CAVEATS:> In a read-only transaction the value is valid only until the end of the
+transaction, and in a read-write transaction the value is valid only until the next
+write operation (because any write operation can potentially modify the in-memory
+btree). In the current implementation, you are responsible for the proper timing
+of usage.
+
+B<NOTE:> In order to achieve the zero-copy behavior desired by setting L<ReadMode>
+to TRUE, you must use the two-argument form of get (C<< $DB->get ( $key, $data ) >>),
+use the new C<< $DB->Rget( $key ) >> or use the cursor get method described below.
+
+=item $DB->UTF8 ( [ MODE ] )
+
+Instructs LDMB_File to use the UTF-8 encoding for the associated database when I<MODE>
+is 1 or revert to raw bytes when 0.
+
+Returns the previous value.
+
+By default, all values in LMDB are simple byte buffers of certain fixed length.
+
+So if you are storing binary data in your database all works as expected: what
+you put is what you get.
+
+But when you need to store some arbitrary Unicode text value, remember that internally
+perl stores your strings in either the native eight-bit character set or in UTF-8,
+and to warrant a consistent encoding in your database you should do something like:
+
+    use Encoding;
+    ...
+
+    $DB->put($key, Encode::encode($my_encoding, $characters));
+
+    $characters = Encode::decode($my_encoding, $DB->get($key));
+
+
+For any value of $my_encoding, see L<Encode> for the gory details.
+
+But if you use for interchange the UTF-8 encoding, with this method you can avoid
+all that typing.
+
+When I<MODE> is 1, all values that you put in the Database will be encoded in UTF-8,
+And all get calls will expect UTF-8 data and it will be verified and decoded.
+In this mode, if malformed data is found, a warning will be emitted, the decode
+attempt aborted and the raw bytes returned.
+
+In this mode, a C<< $foo->get(...) >> call interacts with the L<bytes> pragma in a
+special way: In the lexical scope under the effects of C<use bytes>, any get call
+skips the decode step, returning the fetched encoded UTF-8 data as bytes, i.e. with
+the internal perl UTF8 flag off, as expected by modules like JSON::XS.
 
 =back
 
@@ -1439,7 +1591,7 @@ Salvador Ortiz Garcia, E<lt>sortiz@cpan.orgE<gt>
 =head1 COPYRIGHT AND LICENSE
 
  Copyright (C) 2013-2014 by Salvador Ortiz García
- Copyright (C) 2013-2014 by Matías Software Group, S.A. de C.V. 
+ Copyright (C) 2013-2014 by Matías Software Group, S.A. de C.V.
 
 This library is free software; you can redistribute it and/or modify
 it under the terms of the Artistic License version 2.0, see L<LICENSE>.

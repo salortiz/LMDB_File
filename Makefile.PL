@@ -109,6 +109,8 @@ if  (eval {require ExtUtils::Constant; 1}) {
     MDB_VERSION_FULL MDB_VERSION_MAJOR MDB_VERSION_MINOR
     MDB_VERSION_MISMATCH MDB_VERSION_PATCH
     MDB_WRITEMAP),
+    # My own
+    qw(LMDB_OFLAGN),
     {name=>"MDB_VERSION_STRING", type=>"PV", macro=>"1"},
     {name=>"MDB_VERSION_DATE", type=>"PV", macro=>"1"},
     {name=>"MDB_FIRST", macro=>"1"},

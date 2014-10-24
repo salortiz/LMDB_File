@@ -5,24 +5,50 @@
 
 #include "ppport.h"
 
-#ifdef	SV_UNDEF_RETURNS_NULL
-#define MySvPV(sv, len)	    SvPV_flags(sv, len, SV_GMAGIC|SV_UNDEF_RETURNS_NULL)
-#else
-#define	MySvPV(sv, len)	    SvOK(sv)?SvPV_flags(sv, len, SV_GMAGIC):((len=0), NULL)
-#endif
-
+/* Perl portability code */
 #ifndef cxinc
 #define cxinc()	Perl_cxinc(aTHX)
 #endif
 
+#ifdef	SV_UNDEF_RETURNS_NULL
+#define MySvPV(sv, len)	    SvPV_flags(sv, len, SV_GMAGIC|SV_UNDEF_RETURNS_NULL)
+#else
+#define	MySvPV(sv, len)	    (SvOK(sv)?SvPV_flags(sv, len, SV_GMAGIC):((len=0), NULL))
+#endif
+
+/*
+ * Can't use standard SvPVutf8 because the potential upgrade is in place
+ * and modifying a user scalar in any way is bad practice unless expected.
+ */
+static char *
+S_mySvPVutf8(pTHX_ SV *sv, STRLEN *const len) {
+    if(!SvOK(sv)) {
+	*len = 0;
+	return NULL;
+    }
+    SvGETMAGIC(sv);
+    if(!SvUTF8(sv)) {
+	sv = sv_mortalcopy(sv);
+	sv_utf8_upgrade_nomg(sv);
+    }
+    return  SvPV_nomg(sv, *len);
+}
+#define MySvPVutf8(sv, len) S_mySvPVutf8(aTHX_ sv, &len)
+
 #include <lmdb.h>
+
+/* My own exportable constants */
+#define LMDB_OFLAGN	2
+#define LMDB_ZEROCOPY	0x0001
+#define LMDB_UTF8	0x0002
+
 #include "const-c.inc"
 
 #define	F_ISSET(w, f)	(((w) & (f)) == (f))
+#define	TOHIWORD(F)	((F) << 16)
+#define StoreUV(k, v)	hv_store(RETVAL, (k), sizeof(k) - 1, newSVuv(v), 0)
 
 typedef IV MyInt;
-
-#define StoreUV(k, v)	hv_store(RETVAL, (k), strlen(k), newSVuv(v), 0)
 
 static void
 populateStat(pTHX_ HV** hashptr, int res, MDB_stat *stat)
@@ -50,55 +76,299 @@ typedef	MDB_val	    DBKC;
 typedef	MDB_cursor* LMDB__Cursor;
 typedef	unsigned int flags_t;
 
-
 #define MY_CXT_KEY  "LMDB_File::_guts" XS_VERSION
+
 typedef struct {
-    AV *currdb;
+    LMDB__Env envid;
+    AV *DCmps;
+    AV *Cmps;
+    SV *OFlags;
+    LMDB curdb;
     unsigned int cflags;
     SV *my_asv;
     SV *my_bsv;
-    GV *my_lasterr;
-    GV *my_errgv;
     OP *lmdb_dcmp_cop;
 } my_cxt_t;
 
 START_MY_CXT
 
-#define MY_CMP	    *av_fetch(MY_CXT.currdb, 2, 1)
-#define MY_DCMP	    *av_fetch(MY_CXT.currdb, 3, 1)
-#define FAST_MODE   SvTRUE(*av_fetch(MY_CXT.currdb, 5, 1))
-#define PRED_FLGS   mdb_dbi_flags(txn, dbi, &MY_CXT.cflags)
-#define dCURSOR	    MDB_txn* txn; MDB_dbi dbi
-#define PREC_FLGS(c) txn = mdb_cursor_txn(c); dbi = mdb_cursor_dbi(c); PRED_FLGS
+#define LMDB_OFLAGS TOHIWORD(Perl_do_vecget(aTHX_ MY_CXT.OFlags, dbi, LMDB_OFLAGN))
+#define MY_CMP   *av_fetch(MY_CXT.Cmps, MY_CXT.curdb, 1)
+#define MY_DCMP	 *av_fetch(MY_CXT.DCmps, MY_CXT.curdb, 1)
+
+#define CHECK_ALLCUR  	\
+    envid = mdb_txn_env(txn);						    \
+    if(envid != MY_CXT.envid) {                                             \
+	SV* eidx = sv_2mortal(newSVuv(PTR2UV(MY_CXT.envid = envid)));	    \
+	HE* enve = hv_fetch_ent(get_hv("LMDB::Env::Envs", 0), eidx, 0, 0);  \
+	AV* hh = (AV*)SvRV(HeVAL(enve));				    \
+	MY_CXT.DCmps = (AV *)SvRV(*av_fetch(hh, 1, 0));			    \
+	MY_CXT.Cmps = (AV *)SvRV(*av_fetch(hh, 2, 0));			    \
+	MY_CXT.OFlags = *av_fetch(hh, 3, 0);				    \
+	MY_CXT.curdb = 0; /* Invalidate cached */			    \
+    }									    \
+    if(MY_CXT.curdb != dbi) {						    \
+	MY_CXT.curdb = dbi;						    \
+	mdb_dbi_flags(txn, dbi, &MY_CXT.cflags);			    \
+	MY_CXT.cflags |= LMDB_OFLAGS;					    \
+    }									    \
+    my_cmpsv = MY_CMP;							    \
+    my_dcmpsv = MY_DCMP
+
+
 #define ISDBKINT    F_ISSET(MY_CXT.cflags, MDB_INTEGERKEY)
 #define ISDBDINT    F_ISSET(MY_CXT.cflags, MDB_DUPSORT|MDB_INTEGERDUP)
+#define LwZEROCOPY  F_ISSET(MY_CXT.cflags, TOHIWORD(LMDB_ZEROCOPY))
+#define LwUTF8      F_ISSET(MY_CXT.cflags, TOHIWORD(LMDB_UTF8))
+
+#define dCURSOR	    MDB_txn* txn; MDB_dbi dbi
+#define PREC_FLGS(c) txn = mdb_cursor_txn(c); dbi = mdb_cursor_dbi(c); CHECK_ALLCUR
+
+#define Sv2DBD(sv, data) \
+    if(ISDBDINT) {						\
+	SvIV_please(sv);					\
+	data.mv_data = &(((XPVIV*)SvANY(sv))->xiv_iv);		\
+	data.mv_size = sizeof(MyInt);				\
+    }								\
+    else data.mv_data = LwUTF8 ? MySvPVutf8(sv, data.mv_size)	\
+		               : MySvPV(sv, data.mv_size)
+
+/* ZeroCopy support
+ *
+ * The following code was originally copied from Leon Timmermans's File::Map module
+ *
+ * This software is copyright (c) 2008, 2009 by Leon Timmermans <leont@cpan.org>.
+ * This is free software; you can redistribute it and/or modify it under
+ * the same terms as perl itself.
+ */
+
+#define MMAP_MAGIC_NUMBER 0x4c4d
+
+struct mmap_info {
+    void* real_address; /* Currently unused */
+    void* fake_address;
+    size_t real_length; /* Currently unused */
+    size_t fake_length;
+    int isutf8;
+#ifdef USE_ITHREADS
+    perl_mutex count_mutex;
+    perl_mutex data_mutex;
+    PerlInterpreter* owner;
+    perl_cond cond;
+    int count;
+#endif
+};
 
 static void
-sv_setstatic(pTHX_ SV *const sv, MDB_val *data)
+reset_var(pTHX_ SV* var, struct mmap_info* info) {
+    SvPVX(var) = info->fake_address;
+    SvLEN(var) = 0;
+    SvCUR(var) = info->fake_length;
+    SvPOK_only_UTF8(var);
+#if DEBUG_AS_DUAL
+    SvUV_set(var, PTR2UV(info->fake_address));
+    SvIOK_on(var);
+    SvIsUV_on(var);
+#endif
+}
+
+static void
+mmap_fixup(pTHX_ SV* var, struct mmap_info* info, const char* string, STRLEN len) {
+    if (ckWARN(WARN_SUBSTR)) {
+	Perl_warn(aTHX_ "Writing directly to a memory mapped var is not recommended");
+	if (SvCUR(var) > info->fake_length)
+	    Perl_warn(aTHX_ "Truncating new value to size of the memory map");
+    }
+
+    if (string && len)
+	Copy(string, info->fake_address, MIN(len, info->fake_length), char);
+    SV_CHECK_THINKFIRST_COW_DROP(var);
+    if (SvROK(var))
+	sv_unref_flags(var, SV_IMMEDIATE_UNREF);
+    if (SvPOK(var))
+	SvPV_free(var);
+    reset_var(aTHX_ var, info);
+}
+
+static int
+mmap_write(pTHX_ SV* var, MAGIC* magic) {
+    struct mmap_info* info = (struct mmap_info*) magic->mg_ptr;
+    if (!SvOK(var))
+	mmap_fixup(aTHX_ var, info, NULL, 0);
+    else if (!SvPOK(var)) {
+	STRLEN len;
+	const char* string = info->isutf8 ? MySvPVutf8(var, len) : SvPV(var, len);
+	mmap_fixup(aTHX_ var, info, string, len);
+    }
+    else if (SvPVX(var) != info->fake_address)
+	mmap_fixup(aTHX_ var, info, SvPVX(var), SvCUR(var));
+    else
+	SvPOK_only_UTF8(var);
+    return 0;
+}
+
+static int
+mmap_clear(pTHX_ SV* var, MAGIC* magic) {
+    Perl_die(aTHX_ "Can't clear a mapped variable");
+    return 0;
+}
+
+static int
+mmap_free(pTHX_ SV* var, MAGIC* magic) {
+	struct mmap_info* info = (struct mmap_info*) magic->mg_ptr;
+#ifdef USE_ITHREADS
+	MUTEX_LOCK(&info->count_mutex);
+	if (--info->count == 0) {
+		COND_DESTROY(&info->cond);
+		MUTEX_DESTROY(&info->data_mutex);
+		MUTEX_UNLOCK(&info->count_mutex);
+		MUTEX_DESTROY(&info->count_mutex);
+		PerlMemShared_free(info);
+	}
+	else {
+		MUTEX_UNLOCK(&info->count_mutex);
+	}
+#else
+	PerlMemShared_free(info);
+#endif
+	SvREADONLY_off(var);
+	SvPV_free(var);
+	SvPVX(var) = NULL;
+	SvCUR(var) = 0;
+	return 0;
+}
+
+#ifdef USE_ITHREADS
+static int
+mmap_dup(pTHX_ MAGIC* magic, CLONE_PARAMS* param)
 {
-    dMY_CXT;
-    if(ISDBDINT)
+	struct mmap_info* info = (struct mmap_info*) magic->mg_ptr;
+	MUTEX_LOCK(&info->count_mutex);
+	assert(info->count);
+	++info->count;
+	MUTEX_UNLOCK(&info->count_mutex);
+	return 0;
+}
+#else
+#define mmap_dup 0
+#endif
+
+#ifdef MGf_LOCAL
+static int
+mmap_local(pTHX_ SV* var, MAGIC* magic)
+{
+	Perl_croak(aTHX_ "Can't localize file map");
+}
+#define mmap_local_tail , mmap_local
+#else
+#define mmap_local_tail
+#endif
+
+static MGVTBL
+mmap_table  = { 0, mmap_write,  0, mmap_clear, mmap_free,  0, mmap_dup mmap_local_tail };
+
+static void
+check_new_variable(pTHX_ SV* var)
+{
+    if (SvTYPE(var) > SVt_PVMG && SvTYPE(var) != SVt_PVLV)
+	Perl_croak(aTHX_ "Trying to map into a nonscalar!\n");
+#ifdef sv_unmagicext
+    sv_unmagicext(var, PERL_MAGIC_uvar, &mmap_table);
+#else
+    sv_unmagic(var, PERL_MAGIC_uvar);
+#endif
+    SV_CHECK_THINKFIRST_COW_DROP(var);
+    if (SvREADONLY(var))
+	Perl_croak(aTHX_ "%s", PL_no_modify);
+    if (SvROK(var))
+	sv_unref_flags(var, SV_IMMEDIATE_UNREF);
+    if (SvNIOK(var))
+	SvNIOK_off(var);
+    if (SvPOK(var))
+	SvPV_free(var);
+    SvUPGRADE(var, SVt_PVMG);
+}
+
+static struct mmap_info*
+initialize_mmap_info(
+    pTHX_
+    void* address,
+    size_t len,
+    ptrdiff_t correction,
+    int isutf8
+) {
+    struct mmap_info* info = PerlMemShared_malloc(sizeof *info);
+    info->real_address = address;
+    info->fake_address = (char*)address + correction;
+    info->real_length = len + correction;
+    info->fake_length = len;
+#ifdef USE_ITHREADS
+    MUTEX_INIT(&info->count_mutex);
+    MUTEX_INIT(&info->data_mutex);
+    COND_INIT(&info->cond);
+    info->count = 1;
+#endif
+    info->isutf8 = isutf8;
+    return info;
+}
+
+static void
+add_magic(
+    pTHX_
+    SV* var,
+    struct mmap_info* info,
+    const MGVTBL* table,
+    int writable
+) {
+    MAGIC* magic = sv_magicext(var, NULL, PERL_MAGIC_uvar, table, (const char*) info, 0);
+    magic->mg_private = MMAP_MAGIC_NUMBER;
+#ifdef MGf_LOCAL
+    magic->mg_flags |= MGf_LOCAL;
+#endif
+#ifdef USE_ITHREADS
+    magic->mg_flags |= MGf_DUP;
+#endif
+    if(info->isutf8)
+	SvUTF8_on(var);
+    else
+	SvUTF8_off(var);
+    SvTAINTED_on(var);
+    if (!writable)
+	SvREADONLY_on(var);
+}
+
+static void
+sv_setstatic(pTHX_ pMY_CXT_ SV *const sv, MDB_val *data, bool is_res)
+{
+    if(ISDBDINT && !is_res)
 	    sv_setiv_mg(sv, *(MyInt *)data->mv_data);
     else {
-	if(FAST_MODE) {
-	    SV_CHECK_THINKFIRST_COW_DROP(sv);
-	    SvUPGRADE(sv, SVt_PV);
-	    if (SvPVX_const(sv))
-		SvPV_free(sv);
-
-	    SvCUR_set(sv, data->mv_size);
-	    SvPV_set(sv, data->mv_data);
-	    SvLEN_set(sv, 0); /* Tell Perl not to free memory */
-	    SvPOK_only(sv);
-	    SvREADONLY_on(sv);
+	const PERL_CONTEXT *cx = caller_cx(0, NULL);
+	int utf8 = LwUTF8 && !(CopHINTS_get(cx ? cx->blk_oldcop : PL_curcop) & HINT_BYTES);
+	if(utf8 && !is_utf8_string(data->mv_data, data->mv_size)) {
+	    Perl_ck_warner_d(aTHX_ packWARN(WARN_UTF8), "Malformed UTF-8 in get");
+	    utf8 = 0;
+	}
+	if(LwZEROCOPY || is_res) {
+	    struct mmap_info* info;
+	    unsigned int eflags;
+	    int writable;
+	    check_new_variable(aTHX_ sv);
+	    info = initialize_mmap_info(aTHX_ data->mv_data, data->mv_size, 0, utf8);
+	    mdb_env_get_flags(MY_CXT.envid, &eflags);
+	    writable = is_res ||
+		(F_ISSET(eflags, MDB_WRITEMAP) && !F_ISSET(MY_CXT.cflags, MDB_RDONLY));
+	    add_magic(aTHX_ sv, info, &mmap_table, writable);
+	    reset_var(aTHX_ sv, info);
 	} else {
 	    sv_setpvn_mg(sv, data->mv_data, data->mv_size);
-	    SvUTF8_off(sv);
+	    if(utf8) SvUTF8_on(sv);
+	    else SvUTF8_off(sv);
 	}
     }
 }
 
-/* Callback handling */
+/* Callback Handling */
 
 static int
 LMDB_cmp(const MDB_val *a, const MDB_val *b) {
@@ -118,20 +388,24 @@ LMDB_cmp(const MDB_val *a, const MDB_val *b) {
     return ret;
 }
 
-#define dMCOMMON        \
-    dMY_CXT;	         \
-    int needsave = 0;	  \
-    SV *my_cmpsv = MY_CMP; \
-    SV *my_dcmpsv = MY_DCMP
+#define CvValid(rcv)	(SvROK(rcv) && SvTYPE(SvRV(rcv)) == SVt_PVCV)
+
+#define dMCOMMON    \
+    dMY_CXT;	     \
+    int needsave = 0; \
+    SV *my_cmpsv;      \
+    SV *my_dcmpsv;	\
+    LMDB__Env envid
+
 
 #define MY_PUSH_COMMON \
-    if(SvROK(my_cmpsv) && SvTYPE(SvRV(my_cmpsv)) == SVt_PVCV) {	    \
-	mdb_set_compare(txn, dbi, LMDB_cmp);			    \
-	needsave++;						    \
-    }								    \
-    if(needsave) {						    \
-	SAVESPTR(MY_CXT.my_asv);				    \
-	SAVESPTR(MY_CXT.my_bsv);				    \
+    if(CvValid(my_cmpsv)) {			\
+	mdb_set_compare(txn, dbi, LMDB_cmp);	\
+	needsave++;				\
+    }						\
+    if(UNLIKELY(needsave)) {			\
+	SAVESPTR(MY_CXT.my_asv);		\
+	SAVESPTR(MY_CXT.my_bsv);		\
     }
 
 #ifdef dMULTICALL
@@ -154,17 +428,26 @@ LMDB_dcmp(const MDB_val *a, const MDB_val *b) {
 
 #define MY_PUSH_MULTICALL \
     multicall_cv = NULL;   \
-    if(SvROK(my_dcmpsv) && SvTYPE(SvRV(my_dcmpsv)) == SVt_PVCV) {   \
-	PUSH_MULTICALL((CV *)SvRV(my_dcmpsv));			    \
-	MY_CXT.lmdb_dcmp_cop = multicall_cop;			    \
-	mdb_set_dupsort(txn, dbi, LMDB_dcmp);			    \
-	needsave++;						    \
-    }								    \
+    if(CvValid(my_dcmpsv)) {			\
+	PUSH_MULTICALL((CV *)SvRV(my_dcmpsv));	\
+	MY_CXT.lmdb_dcmp_cop = multicall_cop;	\
+	mdb_set_dupsort(txn, dbi, LMDB_dcmp);	\
+	needsave++;				\
+    }						\
     MY_PUSH_COMMON
 
-#define MY_POP_MULTICALL     \
-    if(multicall_cv) {            \
-	POP_MULTICALL; newsp = newsp;  \
+#if PERL_VERSION < 13 || (PERL_VERSION == 13 && PERL_SUBVERSION < 9)
+#define FIXREFCOUNT if(CvDEPTH(multicall_cv) > 1) \
+    SvREFCNT_inc_simple_void_NN(multicall_cv)
+#else
+#define FIXREFCOUNT
+#endif
+
+#define MY_POP_MULTICALL \
+    if(multicall_cv) {	\
+	FIXREFCOUNT;	\
+	POP_MULTICALL;	\
+	newsp = newsp;  \
     }
 
 #else /* NO MULTICALL support, use a slow path */
@@ -189,23 +472,26 @@ LMDB_dcmp(const MDB_val *a, const MDB_val *b) {
 
 #define dMY_MULTICALL  dMCOMMON
 
-#define MY_PUSH_MULTICALL \
-    if(SvROK(my_dcmpsv) && SvTYPE(SvRV(my_dcmpsv)) == SVt_PVCV) {   \
-	mdb_set_dupsort(tx, dbi, LMDB_dcmp);			    \
-	needsave++;						    \
-    }								    \
+#define MY_PUSH_MULTICALL  \
+    if(CvValid(my_dcmpsv)) {			\
+	mdb_set_dupsort(txn, dbi, LMDB_dcmp);	\
+	needsave++;				\
+    }						\
     MY_PUSH_COMMON
 
 #define MY_POP_MULTICALL
 
 #endif	/* dMULTICALL */
 
-#define DieOnErr    SvTRUE(GvSV(MY_CXT.my_errgv))
+/* Error Handling */
+#define DieOnErrSV  GvSV(gv_fetchpv("LMDB_File::die_on_err", 0, SVt_IV))
+#define DieOnErr    SvTRUEx(DieOnErrSV)
+
+#define LastErrSV   GvSV(gv_fetchpv("LMDB_File::last_err", 0, SVt_IV))
 
 #define ProcError(res)   \
-    if(res) {					\
-	dMY_CXT;				\
-	sv_setiv(GvSV(MY_CXT.my_lasterr), res);	\
+    if(UNLIKELY(res)) {				\
+	sv_setiv(LastErrSV, res);		\
 	SV *sv = newSVpvf(mdb_strerror(res));	\
 	SvSetSV(ERRSV, sv);			\
 	if(DieOnErr) croak(NULL);		\
@@ -228,22 +514,51 @@ mdb_env_open(env, path, flags, mode)
 	const char *	path
 	flags_t	flags
 	int	mode
+    PREINIT:
+	dMY_CXT;
+	AV* av;
+	SV* eidx;
     POSTCALL:
 	ProcError(RETVAL);
+	eidx = sv_2mortal(newSVuv((UV)(MY_CXT.envid = env)));
+	av = newAV();
+	av_store(av, 0, newRV_noinc((SV *)newAV())); /* Txns */
+	av_store(av, 1, newRV_noinc((SV *)(MY_CXT.DCmps = newAV())));
+	av_store(av, 2, newRV_noinc((SV *)(MY_CXT.Cmps = newAV())));
+	av_store(av, 3, (MY_CXT.OFlags = newSVpv("",0))); /* FastMode */
+	hv_store_ent(get_hv("LMDB::Env::Envs", 0), eidx, newRV_noinc((SV *)av), 0);
 
 int
-mdb_env_copy(env, path)
+mdb_env_copy(env, path, flags = 0)
 	LMDB::Env   env
 	const char *	path
-    POSTCALL:
+	unsigned flags
+    CODE:
+#if MDB_VERSION_PATCH < 14
+	if(flags) croak("LMDB_File::copy: This version don't support flags");
+	RETVAL = mdb_env_copy(env, path);
+#else
+	RETVAL = mdb_env_copy2(env, path, flags);
+#endif
 	ProcError(RETVAL);
+    OUTPUT:
+	RETVAL
 
 int
-mdb_env_copyfd(env, fd)
+mdb_env_copyfd(env, fd, flags = 0)
 	LMDB::Env   env
 	mdb_filehandle_t  fd
-    POSTCALL:
+	unsigned flags
+    CODE:
+#if MDB_VERSION_PATCH < 14
+	if(flags) croak("LMDB_File::copyfd: This version don't support flags");
+	RETVAL = mdb_env_copyfd(env, fd);
+#else
+	RETVAL = mdb_env_copyfd2(env, fd, flags);
+#endif
 	ProcError(RETVAL);
+    OUTPUT:
+	RETVAL
 
 HV*
 mdb_env_stat(env)
@@ -341,7 +656,7 @@ UV
 mdb_env_id(env)
 	LMDB::Env   env
     CODE:
-	RETVAL = (UV)env;
+	RETVAL = PTR2UV(env);
     OUTPUT:
 	RETVAL
 
@@ -349,17 +664,15 @@ void
 _clone()
     CODE:
     MY_CXT_CLONE;
+    MY_CXT.envid = NULL;
+    MY_CXT.curdb = 0;
     MY_CXT.my_asv = get_sv("::a", GV_ADDMULTI);	    
     MY_CXT.my_bsv = get_sv("::b", GV_ADDMULTI);	    
-    MY_CXT.my_lasterr = gv_fetchpv("LMDB_File::last_err", 0, SVt_IV);
-    MY_CXT.my_errgv = gv_fetchpv("LMDB_File::die_on_err", 0, SVt_IV);
 
 BOOT:
     MY_CXT_INIT;
     MY_CXT.my_asv = get_sv("::a", GV_ADDMULTI);	    
     MY_CXT.my_bsv = get_sv("::b", GV_ADDMULTI);	    
-    MY_CXT.my_lasterr = gv_fetchpv("LMDB_File::last_err", 0, SVt_IV);
-    MY_CXT.my_errgv = gv_fetchpv("LMDB_File::die_on_err", 0, SVt_IV);
 
 
 MODULE = LMDB_File	PACKAGE = LMDB::Txn	PREFIX = mdb_txn
@@ -379,7 +692,7 @@ UV
 mdb_txn_env(txn)
 	LMDB::Txn   txn
     CODE:
-	RETVAL= (UV)mdb_txn_env(txn);
+	RETVAL= PTR2UV(mdb_txn_env(txn));
     OUTPUT:
 	RETVAL
 
@@ -407,7 +720,7 @@ UV
 mdb_txn_id(txn)
 	LMDB::Txn   txn
     CODE:
-	RETVAL = (UV)txn;
+	RETVAL = PTR2UV(txn);
     OUTPUT:
 	RETVAL
 
@@ -419,8 +732,13 @@ mdb_dbi_open(txn, name, flags, dbi)
 	const char * name = SvOK($arg) ? (const char *)SvPV_nolen($arg) : NULL;
 	flags_t	flags
 	LMDB	&dbi = NO_INIT
+    PREINIT:
+	dMY_CXT;
     POSTCALL:
 	ProcError(RETVAL);
+	mdb_dbi_flags(txn, dbi, &MY_CXT.cflags);
+	MY_CXT.cflags |= LMDB_OFLAGS;
+	MY_CXT.curdb = dbi;
     OUTPUT:
 	dbi
 
@@ -458,19 +776,19 @@ UV
 mdb_cursor_txn(cursor)
 	LMDB::Cursor	cursor
     CODE:
-	RETVAL = (UV)mdb_cursor_txn(cursor);
+	RETVAL = PTR2UV(mdb_cursor_txn(cursor));
     OUTPUT:
 	RETVAL
 
 MODULE = LMDB_File	PACKAGE = LMDB::Cursor	PREFIX = mdb_cursor
 
 int
-mdb_cursor_get(cursor, key, data, op = MDB_FIRST)
+mdb_cursor_get(cursor, key, data, op = MDB_NEXT)
     PREINIT:
 	dMY_MULTICALL;
 	dCURSOR;
     INPUT:
-	LMDB::Cursor	cursor + PREC_FLGS($var);
+	LMDB::Cursor	cursor +PREC_FLGS($var);
 	DBKC	&key	
 	DBD	&data
 	MDB_cursor_op	op
@@ -484,25 +802,65 @@ mdb_cursor_get(cursor, key, data, op = MDB_FIRST)
 	data
 
 int
-mdb_cursor_put(cursor, key, data, flags = 0)
+mdb_cursor_put(cursor, key, data, flags = 0, ...)
     PREINIT:
 	dMY_MULTICALL;
 	dCURSOR;
     INPUT:
-	LMDB::Cursor	cursor + PREC_FLGS($var);
+	LMDB::Cursor	cursor +PREC_FLGS($var);
 	DBKC	&key
-	DBD	&data
+	DBD	&data = NO_INIT
 	flags_t	flags
+    INIT:
+	if(flags & MDB_RESERVE) {
+	    size_t res_size;
+	    size_t max_size = F_ISSET(MY_CXT.cflags, MDB_DUPSORT)
+		? mdb_env_get_maxkeysize(envid)
+		: 0xffffffff;
+	    if(items != 5)
+		croak("%s: MDB_RESERVE needs a length argument (1 .. %d)",
+		      "LMDB_File::_put", max_size);
+	    res_size = SvUV(ST(5));
+	    if(res_size == 0)
+		croak("%s: MDB_RESERVE length must be > 0",
+		      "LMDB_File::_put");
+	    if(ISDBDINT && res_size != sizeof(MyInt))
+		croak("%s: MDB_RESERVE with MDB_INTEGERDUP length should be %d",
+		      "LMDB_File::_put", sizeof(MyInt));
+	    if(res_size > max_size)
+		croak("%s: MDB_RESERVE length should be <= %d", max_size);
+	    data.mv_size = res_size;
+	    data.mv_data = NULL;
+	} else {
+	    /* Normal initialization */
+	    Sv2DBD(ST(2), data);
+	}
+	MY_PUSH_MULTICALL;
+    POSTCALL:
+	MY_POP_MULTICALL;
+	if((flags & MDB_NOOVERWRITE) && RETVAL == MDB_KEYEXIST) {
+	    sv_setstatic(aTHX_ aMY_CXT_ ST(2), &data, 0);
+	    SvSETMAGIC(ST(2));
+	}
+	ProcError(RETVAL);
+	if(flags & MDB_RESERVE) {
+	    sv_setstatic(aTHX_ aMY_CXT_ ST(2), &data, 1);
+	    SvSETMAGIC(ST(2));
+	}
+
+int
+mdb_cursor_del(cursor, flags = 0)
+    PREINIT:
+	dMY_MULTICALL;
+	dCURSOR;
+    INPUT:
+	LMDB::Cursor	cursor +PREC_FLGS($var);
+	flags_t		flags
     INIT:
 	MY_PUSH_MULTICALL;
     POSTCALL:
 	MY_POP_MULTICALL;
 	ProcError(RETVAL);
-
-int
-mdb_cursor_del(cursor, flags = 0)
-	LMDB::Cursor	cursor
-	flags_t		flags
 
 MODULE = LMDB_File		PACKAGE = LMDB_File	    PREFIX = mdb
 
@@ -515,14 +873,6 @@ INCLUDE: const-xs.inc
 #ifdef __GNUC__
 #pragma GCC diagnostic warning "-Wmaybe-uninitialized"
 #endif
-
-void
-_setcurrent(currdb)
-	AV* currdb
-    PREINIT:
-	dMY_CXT;
-    CODE:
-	MY_CXT.currdb = currdb;
 
 HV*
 mdb_stat(txn, dbi)
@@ -590,7 +940,7 @@ mdb_get(txn, dbi, key, data)
     PREINIT:
 	dMY_MULTICALL;
     INPUT:
-	LMDB::Txn   txn + PRED_FLGS;
+	LMDB::Txn   txn +CHECK_ALLCUR;
 	LMDB	dbi
 	DBK	&key
 	DBD	&data = NO_INIT
@@ -603,29 +953,58 @@ mdb_get(txn, dbi, key, data)
 	data
 
 int
-mdb_put(txn, dbi, key, data, flags = 0)
+mdb_put(txn, dbi, key, data, flags = 0, ...)
     PREINIT:
 	dMY_MULTICALL;
     INPUT:
-	LMDB::Txn   txn + PRED_FLGS;
+	LMDB::Txn   txn +CHECK_ALLCUR;
 	LMDB	 dbi
 	DBK	&key
-	DBD	&data
+	DBD	&data = NO_INIT
 	flags_t	flags
     INIT:
-	if(flags & MDB_RESERVE) /* TODO */
-	    croak("MDB_RESERVE flag unimplemented.");
+	if(flags & MDB_RESERVE) {
+	    size_t res_size;
+	    size_t max_size = F_ISSET(MY_CXT.cflags, MDB_DUPSORT)
+		? mdb_env_get_maxkeysize(envid)
+		: 0xffffffff;
+	    if(items != 6)
+		croak("%s: MDB_RESERVE needs a length argument (1 .. %d)",
+		      "LMDB_File::_put", max_size);
+	    res_size = SvUV(ST(5));
+	    if(res_size == 0)
+		croak("%s: MDB_RESERVE length must be > 0",
+		      "LMDB_File::_put");
+	    if(ISDBDINT && res_size != sizeof(MyInt))
+		croak("%s: MDB_RESERVE with MDB_INTEGERDUP length should be %d",
+		      "LMDB_File::_put", sizeof(MyInt));
+	    if(res_size > max_size)
+		croak("%s: MDB_RESERVE length should be <= %d", max_size);
+	    data.mv_size = res_size;
+	    data.mv_data = NULL;
+	} else {
+	    /* Normal initialization */
+	    Sv2DBD(ST(3), data);
+	}
 	MY_PUSH_MULTICALL;
     POSTCALL:
 	MY_POP_MULTICALL;
+	if((flags & MDB_NOOVERWRITE) && RETVAL == MDB_KEYEXIST) {
+	    sv_setstatic(aTHX_ aMY_CXT_ ST(3), &data, 0);
+	    SvSETMAGIC(ST(3));
+	}
 	ProcError(RETVAL);
+	if(flags & MDB_RESERVE) {
+	    sv_setstatic(aTHX_ aMY_CXT_ ST(3), &data, 1);
+	    SvSETMAGIC(ST(3));
+	}
 
 int
 mdb_del(txn, dbi, key, data)
     PREINIT:
 	dMY_MULTICALL;
     INPUT:
-	LMDB::Txn   txn + PRED_FLGS;
+	LMDB::Txn   txn +CHECK_ALLCUR;
 	LMDB	dbi
 	DBK	&key
 	DBD	&data
@@ -643,7 +1022,7 @@ mdb_cmp(txn, dbi, a, b)
     PREINIT:
 	dMY_MULTICALL;
     INPUT:
-	LMDB::Txn   txn + PRED_FLGS;
+	LMDB::Txn   txn +CHECK_ALLCUR;
 	LMDB	dbi
 	DBD	&a
 	DBD	&b
@@ -657,7 +1036,7 @@ mdb_dcmp(txn, dbi, a, b)
     PREINIT:
 	dMY_MULTICALL;
     INPUT:
-	LMDB::Txn   txn + PRED_FLGS;
+	LMDB::Txn   txn +CHECK_ALLCUR;
 	LMDB	dbi
 	DBD	&a
 	DBD	&b
@@ -675,6 +1054,12 @@ mdb_reader_list(env, func, ctx)
 	MDB_msg_func *	func
 	void *	ctx
 =cut
+
+void
+_resetcurdbi()
+    CODE:
+	dMY_CXT;
+	MY_CXT.curdb = 0;
 
 int
 mdb_reader_check(env, dead)
@@ -696,4 +1081,3 @@ mdb_version(major, minor, patch)
 	major
 	minor
 	patch
-

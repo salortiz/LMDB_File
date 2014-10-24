@@ -17,12 +17,7 @@ flags_t		T_UV_N
 
 INPUT
 T_datum
-	if (ISDBDINT) {
-	    SvIV_please($arg);
-	    $var.mv_data = &(((XPVIV*)SvANY($arg))->xiv_iv);
-	    $var.mv_size = sizeof(MyInt);
-	}
-	else $var.mv_data = MySvPV($arg, $var.mv_size);
+	Sv2DBD($arg, $var);
 T_keydatum
 	if (ISDBKINT) {
 	    SvIV_please($arg);
@@ -58,7 +53,7 @@ T_UV_N
 ####################################################################################
 OUTPUT
 T_datum
-	sv_setstatic(aTHX_ $arg, &$var);
+	sv_setstatic(aTHX_ aMY_CXT_ $arg, &$var, 0);
 T_keydatum
 	if(ISDBKINT) {
 	    sv_setiv_mg($arg, *(MyInt *)$var.mv_data);
