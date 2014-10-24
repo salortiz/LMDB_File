@@ -5,11 +5,11 @@ use strict;
 use warnings;
 use utf8;
 
-use File::Temp qw(tempdir);
+use File::Temp;
 
 use LMDB_File qw(:flags :cursor_op);
 
-my $dir = tempdir('mdbtXXXX', TMPDIR => 1);
+my $dir = File::Temp->newdir('mdbtXXXX', TMPDIR => 1, EXLOCK => 0);
 ok(-d $dir, "Created test dir $dir");
 my $env = LMDB::Env->new($dir, { maxdbs => 5 });
 {

@@ -1,11 +1,11 @@
 #!perl
-use Test::More tests => 119;
-use Test::Exception;
 use strict;
 use warnings;
-use utf8;
+use Test::More tests => 175;
+use Test::Exception;
+use Encode;
 
-use File::Temp qw(tempdir);
+use File::Temp;
 use LMDB_File qw(:envflags :cursor_op);
 
 if($ENV{LANG} && $ENV{LANG} !~ /^en/) {
@@ -15,24 +15,31 @@ if($ENV{LANG} && $ENV{LANG} !~ /^en/) {
 
 throws_ok {
     LMDB::Env->new("NoSuChDiR");
-} qr/No such/, 'Directory must exists';
+} qr/No such|cannot find/, 'Directory must exists';
 
-my $dir = tempdir('mdbtXXXX', TMPDIR => 1);
+my $dir = File::Temp->newdir('mdbtXXXX', TMPDIR => 1, EXLOCK => 0);
 ok(-d $dir, "Created $dir");
 my $testdir = "TestDir";
 
 throws_ok {
     LMDB::Env->new($dir, { flags => MDB_RDONLY });
-} qr/No such/, 'RO must exists';
+} qr/No such|cannot find/, 'RO must exists';
 
 {
     my $env = new_ok('LMDB::Env' => [ $dir ], "Create Environment");
     ok(-e "$dir/data.mdb", 'Data file created exists');
     ok(-e "$dir/lock.mdb", 'Lock file created exists');
-    $env->get_path(my $dumy);
-    is($dir, $dumy, 'get_path');
-    $env->get_flags($dumy);
-    is($dumy, 0x30000000, 'Flags setted'); # Using private
+    $env->get_path(my $dummy);
+    is($dir, $dummy, 'get_path');
+
+    # Environment flags
+    {
+	$env->get_flags($dummy);
+	my $privflags = 0x30000000; #MDB_ENV_ACTIVE | MDB_ENV_TXKEY
+	$privflags |= MDB_WRITEMAP # Forced, sorry
+	    if $^O =~ /openbsd/;
+	is($dummy, $privflags, 'Flags setted'); # Using private
+    }
     ok($env->id, 'Env ID: ' . $env->id);
 
     # Basic Environment info
@@ -53,22 +60,43 @@ throws_ok {
     is($stat->{$_}, 0, "$_ = 0, empty")
 	for qw(depth branch_pages leaf_pages overflow_pages entries);
 
+    # Check Internals
+    {
+	my @envid = keys %LMDB::Env::Envs;
+	is(scalar(@envid), 1, 'One Environment');
+	is($envid[0],  $$env, 'The active one');
+	my $ed = $LMDB::Env::Envs{$$env};
+	isa_ok($ed, 'ARRAY');
+	is(scalar @{ $ed }, 4, 'Size');
+	isa_ok($ed->[0], 'ARRAY', 'Txns');
+	isa_ok($ed->[1], 'ARRAY', 'DCmps');
+	isa_ok($ed->[2], 'ARRAY', 'Cmps');
+	isa_ok(\$ed->[3], 'SCALAR', 'OFlags');
+    }
 
     # Check Env refcounts
     is(Internals::SvREFCNT($$env), 1, 'Env Inactive');
+
     isa_ok(my $txn = $env->BeginTxn, 'LMDB::Txn', 'Transaction');
+    ok($txn->_id > 0, 'Expected');
+    is($txn->_id, $$txn, "Txn Id ($$txn)");
+    is(Internals::SvREFCNT($$txn), 1, 'Txn active');
+
     is(Internals::SvREFCNT($$env), 2, 'Env Active');
     throws_ok {
 	$txn->OpenDB('NAMED');
     } qr/limit reached/, 'No named allowed';
-    {
+
+    SKIP: {
+	skip "Unsuported with MDB_WRITEMAP", 2 if $dummy & MDB_WRITEMAP;
     	isa_ok(my $sub = $env->BeginTxn, 'LMDB::Txn', 'Subtransaction');
 	is(Internals::SvREFCNT($$env), 3, 'Env Active');
     }
+
     is(Internals::SvREFCNT($$env), 2, 'Back normal');
     {
 	isa_ok(my $eclone = $txn->env, 'LMDB::Env', 'Got Env');
-	is($env->id, $eclone->id, "The same ID ($$env)");
+	is($env->id, $eclone->id, "The same env ID ($$env)");
 	is(Scalar::Util::refaddr($env), Scalar::Util::refaddr($eclone), 'Same refaddr');
 	is(Internals::SvREFCNT($$env),  3, 'Refcounted');
     }
@@ -81,14 +109,17 @@ throws_ok {
 	$txn->commit;
     } qr/Terminated/, 'Terminated';
     is($$txn, 0, 'Nullified');
+    is($txn->_id, 0, 'The same');
 
     ok($txn = $env->BeginTxn, 'Recreated');
 
-    # Open main dbi
+    # Open main DB
     isa_ok(my $DB = $txn->OpenDB, 'LMDB_File', 'DBI created');
     is($DB->Alive, 1, 'The first');
     is($DB->flags, 0, 'Main DBI Flags');
     is($env->info->{numreaders}, 0, "I'm not a reader");
+
+    is(Internals::SvREFCNT($$txn), 2, 'DB Keeps Txn');
 
     is($txn->OpenDB->Alive, $DB->Alive, 'Just a clone');
 
@@ -109,30 +140,102 @@ throws_ok {
 	}
     }
     is($c, 26, 'All in');
-
+    
     # Check data in random HASH order
     $c = 5; # Don't be verbose
     while(my($k, $v) = each %data) {
 	is($DB->get($k), $v, "Get $k") if(--$c >= 0);
     }
 
+    {	# Check UTF8 Handling
+	use utf8;
+	use Devel::Peek;
+	my $unicode = "♠♡♢♣"; # U+2660 .. U+2663
+	is(length $unicode, 4, 'Four unicode characters'); 
+	my $invariant = "áéíóú";
+	my $latin1 = Encode::encode('Latin1', $invariant);
+	# Without explicit help of LMDB_File we need extra care
+	is($DB->put('UNIC', $unicode), $unicode, 'Put unicode');
+	my $data = $DB->get('UNIC');
+	isnt($data, $unicode, 'Not the same!');
+	{ use bytes; ok($data eq $unicode, 'Ugly!'); }
+	# Use Latin1
+	is($DB->put('UNIC2', $latin1), $latin1, 'Put latin1');
+	$data = $DB->get('UNIC2');
+	is($data, $latin1, 'By chance');
+	# But beware
+	is($data, $invariant, 'By perl magic');
+	{ use bytes; ok($data ne $invariant, 'ne OK!?'); }
+
+	# Safe only if use explicit encode/decode
+	my $encoded = Encode::encode_utf8($unicode);
+	is($DB->put('ENC1', $encoded), $encoded, 'Put encoded');
+	$data = $DB->get('ENC1');
+	isnt($data, $unicode, 'Need decode');
+	is(Encode::decode_utf8($data), $unicode, 'Decode');
+	is(Encode::decode('Latin1', $DB->get('UNIC2')), $invariant, 'Should');
+
+	# Easier with explicit help
+	is($DB->UTF8(1), 0, 'Was off');
+
+	is($DB->put('UNIC', $unicode), $unicode, 'Just put in');
+	is($DB->get('UNIC'), $unicode, 'Just get out');
+	$data = do { use bytes; $DB->get('UNIC'); };
+	is($data, $encoded, 'Handy');
+	{
+	    # Be permisive
+	    my $warn; 
+	    local $SIG{__WARN__} = sub { $warn = shift };
+	    $data = $DB->get('UNIC2');
+	    like($warn, qr/Malformed/, 'Warning emited');
+	    ok(!utf8::is_utf8($data), 'No UTF8');
+	    is($data, $latin1, 'But just works');
+	    $warn = '';
+
+	    # Can correct that.
+	    is($DB->put('UNIC2', $latin1), $latin1, 'Just put encoded');
+	    ok(!utf8::is_utf8($latin1), 'Orig not touched');
+	    $data = $DB->get('UNIC2');
+	    is($data, $invariant, 'Must be');
+	    { use bytes; ok($data eq $invariant, 'No suprises'); }
+	    is($data, $latin1, 'Just get out encoded');
+	    { use bytes; ok($data ne $latin1, 'Expected'); }
+	    ok($warn eq '', 'No more warnings');
+	}
+
+	is($DB->get('ENC1'), $unicode, 'Safe played');
+	is($DB->get('AAAA'), $data{'AAAA'}, 'Unaltered');
+
+	$DB->del($_) for qw(UNIC UNIC2 ENC1);
+    }
+
     # Commit
     lives_ok { $txn->commit; }  'Commited';
 
-    # Commit terminates transaction
+    # Commit terminates transaction and DB
+    ok(!$DB->Alive, "Not Alive");
+    is($DB->Txn, undef, "No Txn");
+    is($DB->dbi, 1, "Last memory of dbi");
     throws_ok {
 	$DB->get('SOMEKEY');
-    } qr/Not an active/, 'Commit finalized dbi';
+    } qr/Not an active/, 'Commit invalidates DB';
     throws_ok {
 	$txn->OpenDB;
-    } qr/Not an active/, 'Commit finalized txn';
+    } qr/Not an alive/, 'Commit finalized txn';
     lives_ok {
 	my $warn;
-	$SIG{__WARN__} = sub { $warn = shift };
+	local $SIG{__WARN__} = sub { $warn = shift };
 	$txn->abort;
 	like($warn, qr/Terminated/, 'Warning emited');
-    } 'Blessed';
+	is($txn->_id, 0, 'Expected 0');
+	is($$txn, 0, 'A ghost...');
+	$warn = ''; # Clean;
+	undef $txn;
+	ok(!$warn, 'No warnings');
+    } 'but blessed';
+
     is(Internals::SvREFCNT($$env), 1, 'Env Inactive');
+    is($env->info->{numreaders}, 0, 'No readers yet');
 
     # Test copy method
     throws_ok {
@@ -140,29 +243,25 @@ throws_ok {
     } qr/No such/, 'Copy needs a directory';
     throws_ok {
 	$env->copy($dir);
-    } qr/File exists|error/, 'An empty one, not myself';
+    } qr/file exists|error/i, 'An empty one, not myself';
 
     SKIP: {
 	skip "Need a local directory", 2 unless(-d $testdir or mkdir $testdir);
 	is($env->copy($testdir), 0, 'Copied');
-	ok(-e "$testdir/data.mdb", "Data file created");
+	my $size = -s "$testdir/data.mdb";
+	ok($size, "Data file created, $size");
     }
     $testdir = $dir unless -s "$testdir/data.mdb";
 
-    open(my $fd, '>', "$testdir/other.mdb");
-    is($env->copyfd($fd), 0, 'Copied to HANDLE');
-}
+    {
+	open(my $fd, '>', "$testdir/other.mdb");
+        is($env->copyfd($fd), 0, 'Copied to HANDLE');
+	#is($env->info->{numreaders}, 1, 'A reader');
+    }
 
-{
-    my $env = LMDB::Env->new($testdir, {
-	    mapsize => 2 * 1024 * 1024,
-	    flags => MDB_RDONLY
-    });
-    isa_ok($env, 'LMDB::Env');
-    is($env->info->{mapsize}, 2 * 1024 * 1024, 'mapsize increased');
-    is($env->info->{numreaders}, 0, 'No yet');
+    isa_ok($DB = LMDB_File->new($env->BeginTxn(MDB_RDONLY), 1),
+	'LMDB_File', 'DBI fast opened RO');
 
-    isa_ok(my $DB = $env->BeginTxn->OpenDB, 'LMDB_File', 'RO DBI opened');
     throws_ok {
 	$DB->put('0000', 'Datum #0');
     } qr/Permission denied/, 'Read only transaction';
@@ -214,15 +313,27 @@ throws_ok {
 	$cursor->get($key, $datum, MDB_NEXT);
     } qr/NOTFOUND/, 'No next key';
 }
+is(scalar keys %LMDB::Env::Envs, 0, 'No environment open');
 {
     # Using TIE interface
     my $h;
     isa_ok(
-	tie(%$h, 'LMDB_File', "$testdir/other.mdb" => { flags => MDB_NOSUBDIR }),
+	tie(%$h, 'LMDB_File', "$testdir/other.mdb" => {
+		flags => MDB_NOSUBDIR,
+		mapsize => 2 * 1024 * 1024,
+	    }),
 	'LMDB_File', 'Tied'
     );
-    isa_ok(tied %$h, 'LMDB_File', 'The same');
+    { # Consistency checks
+	isa_ok(my $DB = tied %$h, 'LMDB_File', 'The same');
+	isa_ok(my $txn = $DB->Txn, 'LMDB::Txn', 'Has Txn');
+	isa_ok(my $env = $txn->env, 'LMDB::Env');
+        is($env->info->{mapsize}, 2 * 1024 * 1024, 'mapsize increased');
+	is($DB->dbi, 1,  'The default one');
+    }
 
+    # Check optimized scalar
+    ok(scalar %$h, 'Has data');
     is($h->{EEEE}, 'Datum #5', 'FETCH');
     is($h->{ABCS}, undef, 'No data');
     my @keys = keys %{$h};
@@ -232,11 +343,20 @@ throws_ok {
     ok(exists $h->{ZZZZ}, 'Exists');
     is(delete $h->{ZZZZ}, 'Datum #26', 'Deleted #26');
     ok(!exists $h->{ZZZZ}, 'Really deleted');
-    is(scalar keys %$h, 25, 'Reduced');
+    is(scalar %$h, 25, 'Reduced');
 
     is($h->{ZZZZ} = 'New data', 'New data', 'STORE');
-    is(scalar keys %$h, 26, 'Stored');
+    is(scalar %$h, 26, 'Stored');
     is($h->{ZZZZ}, 'New data', 'Really stored');
+    %$h = ();
+    ok(!scalar %$h, 'Emptied');
+    %$h = (a => 1, b => 2, c=>3);
+    is(scalar %$h, 3, 'Loaded');
+
+    # Check each
+    while(my($k, $v) = each %$h) {
+	is(ord($k)-96,$v, "Match for $k");
+    }
 
     untie %$h;
 }
@@ -246,7 +366,7 @@ END {
 	for($testdir, $dir) {
 	    unlink glob("$_/*");
 	    rmdir or warn "rm $_: $!\n";
-	    warn "Removed $_\n";
+	    #warn "Removed $_\n";
 	}
     }
 }
