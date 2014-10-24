@@ -11,7 +11,7 @@ t/00-basic.t
 t/01-environment.t
 t/02-named.t
 t/03-fastmode.t
-t/04-bitone.t
+t/04-bigone.t
 fallback/const-c.inc
 fallback/const-xs.inc
 lib/LMDB_File.pm
