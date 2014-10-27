@@ -18,7 +18,6 @@ lib/LMDB_File.pm
 liblmdb/CHANGES
 liblmdb/COPYRIGHT
 liblmdb/Doxyfile
-liblmdb/liblmdb.spec
 liblmdb/LICENSE
 liblmdb/lmdb.h
 liblmdb/Makefile
@@ -39,4 +38,3 @@ liblmdb/mtest4.c
 liblmdb/mtest5.c
 liblmdb/mtest6.c
 liblmdb/mtest.c
-
