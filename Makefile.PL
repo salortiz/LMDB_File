@@ -80,7 +80,7 @@ WriteMakefile(
 	    repository => {
 		type => 'git',
 		url =>  'git://github.com/salortiz/LMDB_File.git',
-		web =>  'https://github.com/salortiz/LDMM_File',
+		web =>  'https://github.com/salortiz/LMDB_File',
 	    }
 	}
     },
