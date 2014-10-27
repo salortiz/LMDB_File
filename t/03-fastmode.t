@@ -2,7 +2,7 @@
 use strict;
 use warnings;
 use utf8;
-use Test::More tests => 60;
+use Test::More tests => 59;
 use Test::Exception;
 use Test::ZeroCopy;
 use B;
