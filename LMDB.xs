@@ -343,7 +343,12 @@ sv_setstatic(pTHX_ pMY_CXT_ SV *const sv, MDB_val *data, bool is_res)
     if(ISDBDINT && !is_res)
 	    sv_setiv_mg(sv, *(MyInt *)data->mv_data);
     else {
-	const PERL_CONTEXT *cx = caller_cx(0, NULL);
+	const PERL_CONTEXT *cx =
+#if PERL_VERSION > 13 || (PERL_VERSION == 13 && PERL_SUBVERSION >= 5)
+	    caller_cx(0, NULL);
+#else
+	    NULL;
+#endif
 	int utf8 = LwUTF8 && !(CopHINTS_get(cx ? cx->blk_oldcop : PL_curcop) & HINT_BYTES);
 	if(utf8 && !is_utf8_string(data->mv_data, data->mv_size)) {
 	    Perl_ck_warner_d(aTHX_ packWARN(WARN_UTF8), "Malformed UTF-8 in get");
