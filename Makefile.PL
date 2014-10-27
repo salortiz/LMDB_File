@@ -12,6 +12,8 @@ my $LNAME = 'LMDB';
 my $NAME = "${LNAME}_File";
 my ($LIBS) = map { /^LIBS=(.*)$/ && $1 || () } @ARGV;
 my ($INC) = map { /^INC=(.*)/ && $1 || () } @ARGV;
+my $NOSYS = grep /\bNOSYSTEM\b/, @ARGV;
+
 my $myextlib = '';
 {
     $LIBS ||= '';
@@ -19,13 +21,17 @@ my $myextlib = '';
     my @stdinc = qw(/usr/include /usr/local/include);
     push @stdinc, $libdata[3] if $libdata[3];
     my($Head) = grep -f "$_/lmdb.h", @stdinc;
-    if(($INC || $Head) && $libdata[0]) {
+    if(!$NOSYS && ($INC || $Head) && $libdata[0]) {
 	$INC ||= "-I$Head" if -f "$libdata[3]/lmdb.h";
 	warn "Will use SYSTEM lmdb in $libdata[3]\n";
 	$LIBS ||= '-llmdb';
 	warn "If that path isn't a standard one, you may need to set LD_LIBRARY_PATH!\n"
 	    if($libdata[4][0] =~ /.so/);
     } else {
+	unless(-e 'liblmdb/Makefile') {
+	    warn "Clone lmdb from its repo and put a copy/link of 'liblmdb' in this directory";
+	    exit 0;
+	}
 	$myextlib = 'liblmdb/liblmdb$(LIB_EXT)';
     }
 
@@ -68,9 +74,19 @@ WriteMakefile(
     DEFINE		=> '', # e.g., '-DHAVE_SOMETHING'
     XSPROTOARG		=> '-noprototypes',
     LICENSE		=> 'artistic_2',
+    META_MERGE		=> {
+	"meta-spec" => { version => 2 },
+	resources => {
+	    repository => {
+		type => 'git',
+		url =>  'git://github.com/salortiz/LMDB_File.git',
+		web =>  'https://github.com/salortiz/LDMM_File',
+	    }
+	}
+    },
     TEST_REQUIRES	=> {
 	'Test::More' => 0,
-	'Test::Exception' => 0, 
+	'Test::Exception' => 0,
 	'Test::ZeroCopy' => 0
     },
     OBJECT		=> '$(O_FILES)', # link all the C files too
