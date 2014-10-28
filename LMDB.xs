@@ -16,11 +16,71 @@
 #define	MySvPV(sv, len)	    (SvOK(sv)?SvPV_flags(sv, len, SV_GMAGIC):((len=0), NULL))
 #endif
 
+#ifndef caller_cx
+/* Copied from pp_ctl.c for pre 5.13.5 */
+STATIC I32
+S_dopoptosub_at(pTHX_ const PERL_CONTEXT *cxstk, I32 startingblock)
+{
+    dVAR;
+    I32 i;
+    for (i = startingblock; i >= 0; i--) {
+	register const PERL_CONTEXT * const cx = &cxstk[i];
+	switch (CxTYPE(cx)) {
+	default:
+	    continue;
+	case CXt_EVAL:
+	case CXt_SUB:
+	case CXt_FORMAT:
+	    return i;
+	}
+    }
+    return i;
+}
+#define	dopoptosub_at(c,s)	S_dopoptosub_at(aTHX_ c,s)
+
+STATIC const PERL_CONTEXT *
+Perl_caller_cx(pTHX_ I32 count, const PERL_CONTEXT **dbcxp)
+{
+    I32 cxix = dopoptosub_at(cxstack, cxstack_ix);
+    const PERL_CONTEXT *cx;
+    const PERL_CONTEXT *ccstack = cxstack;
+    const PERL_SI *top_si = PL_curstackinfo;
+
+    for (;;) {
+	while (cxix < 0 && top_si->si_type != PERLSI_MAIN) {
+	    top_si = top_si->si_prev;
+	    ccstack = top_si->si_cxstack;
+	    cxix = dopoptosub_at(ccstack, top_si->si_cxix);
+	}
+	if (cxix < 0)
+	    return NULL;
+	if (PL_DBsub && GvCV(PL_DBsub) && cxix >= 0 &&
+		ccstack[cxix].blk_sub.cv == GvCV(PL_DBsub))
+	    count++;
+	if (!count--)
+	    break;
+	cxix = dopoptosub_at(ccstack, cxix - 1);
+    }
+
+    cx = &ccstack[cxix];
+    if (dbcxp) *dbcxp = cx;
+
+    if (CxTYPE(cx) == CXt_SUB || CxTYPE(cx) == CXt_FORMAT) {
+        const I32 dbcxix = dopoptosub_at(ccstack, cxix - 1);
+	if (PL_DBsub && GvCV(PL_DBsub) && dbcxix >= 0 && ccstack[dbcxix].blk_sub.cv == GvCV(PL_DBsub))
+	    cx = &ccstack[dbcxix];
+    }
+
+    return cx;
+}
+#define caller_cx(count, dbcxp)	    Perl_caller_cx(aTHX_ count, dbcxp);
+#endif
+
 /*
  * Can't use standard SvPVutf8 because the potential upgrade is in place
  * and modifying a user scalar in any way is bad practice unless expected.
  */
-static char *
+STATIC char *
 S_mySvPVutf8(pTHX_ SV *sv, STRLEN *const len) {
     if(!SvOK(sv)) {
 	*len = 0;
@@ -46,7 +106,7 @@ S_mySvPVutf8(pTHX_ SV *sv, STRLEN *const len) {
 
 #define	F_ISSET(w, f)	(((w) & (f)) == (f))
 #define	TOHIWORD(F)	((F) << 16)
-#define StoreUV(k, v)	hv_store(RETVAL, (k), sizeof(k) - 1, newSVuv(v), 0)
+#define StoreUV(k, v)	(void)hv_store(RETVAL, (k), sizeof(k) - 1, newSVuv(v), 0)
 
 typedef IV MyInt;
 
@@ -343,15 +403,11 @@ sv_setstatic(pTHX_ pMY_CXT_ SV *const sv, MDB_val *data, bool is_res)
     if(ISDBDINT && !is_res)
 	    sv_setiv_mg(sv, *(MyInt *)data->mv_data);
     else {
-	const PERL_CONTEXT *cx =
-#if PERL_VERSION > 13 || (PERL_VERSION == 13 && PERL_SUBVERSION >= 5)
-	    caller_cx(0, NULL);
-#else
-	    NULL;
-#endif
+	const PERL_CONTEXT *cx = caller_cx(0, NULL);
 	int utf8 = LwUTF8 && !(CopHINTS_get(cx ? cx->blk_oldcop : PL_curcop) & HINT_BYTES);
 	if(utf8 && !is_utf8_string(data->mv_data, data->mv_size)) {
-	    Perl_ck_warner_d(aTHX_ packWARN(WARN_UTF8), "Malformed UTF-8 in get");
+	    if(ckWARN(WARN_UTF8))
+		Perl_warn(aTHX_ "Malformed UTF-8 in get");
 	    utf8 = 0;
 	}
 	if(LwZEROCOPY || is_res) {
