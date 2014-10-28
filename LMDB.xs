@@ -96,7 +96,7 @@ START_MY_CXT
 #define MY_CMP   *av_fetch(MY_CXT.Cmps, MY_CXT.curdb, 1)
 #define MY_DCMP	 *av_fetch(MY_CXT.DCmps, MY_CXT.curdb, 1)
 
-#define CHECK_ALLCUR  	\
+#define CHECK_ALLCUR	\
     envid = mdb_txn_env(txn);						    \
     if(envid != MY_CXT.envid) {                                             \
 	SV* eidx = sv_2mortal(newSVuv(PTR2UV(MY_CXT.envid = envid)));	    \
@@ -507,7 +507,7 @@ MODULE = LMDB_File	PACKAGE = LMDB::Env	PREFIX = mdb_env_
 
 int
 mdb_env_create(env)
-	LMDB::Env   &env = NO_INIT 
+	LMDB::Env   &env = NO_INIT
     POSTCALL:
 	ProcError(RETVAL);
     OUTPUT:
@@ -671,13 +671,13 @@ _clone()
     MY_CXT_CLONE;
     MY_CXT.envid = NULL;
     MY_CXT.curdb = 0;
-    MY_CXT.my_asv = get_sv("::a", GV_ADDMULTI);	    
-    MY_CXT.my_bsv = get_sv("::b", GV_ADDMULTI);	    
+    MY_CXT.my_asv = get_sv("::a", GV_ADDMULTI);
+    MY_CXT.my_bsv = get_sv("::b", GV_ADDMULTI);
 
 BOOT:
     MY_CXT_INIT;
-    MY_CXT.my_asv = get_sv("::a", GV_ADDMULTI);	    
-    MY_CXT.my_bsv = get_sv("::b", GV_ADDMULTI);	    
+    MY_CXT.my_asv = get_sv("::a", GV_ADDMULTI);
+    MY_CXT.my_bsv = get_sv("::b", GV_ADDMULTI);
 
 
 MODULE = LMDB_File	PACKAGE = LMDB::Txn	PREFIX = mdb_txn
@@ -794,7 +794,7 @@ mdb_cursor_get(cursor, key, data, op = MDB_NEXT)
 	dCURSOR;
     INPUT:
 	LMDB::Cursor	cursor +PREC_FLGS($var);
-	DBKC	&key	
+	DBKC	&key
 	DBD	&data
 	MDB_cursor_op	op
     INIT:
@@ -1069,7 +1069,7 @@ _resetcurdbi()
 int
 mdb_reader_check(env, dead)
 	LMDB::Env   env
-	int 	&dead
+	int	&dead
     OUTPUT:
 	dead
 
@@ -1079,8 +1079,8 @@ mdb_strerror(err)
 
 char *
 mdb_version(major, minor, patch)
-	int 	&major = NO_INIT
-	int 	&minor = NO_INIT
+	int	&major = NO_INIT
+	int	&minor = NO_INIT
 	int	&patch = NO_INIT
     OUTPUT:
 	major
