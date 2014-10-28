@@ -50,7 +50,7 @@ my $env = LMDB::Env->new($dir, { maxdbs => 5 });
     is($db->stat->{entries}, 0, 'Empty');
     ok(!$db->get('Test'), "No in this");
 }
-{    
+{
     my $txn = $env->BeginTxn;
     ok(my $odb = $txn->OpenDB('ONE'), 'Preserved');
     is($odb->stat->{entries}, 2, "With 2 keys");
@@ -75,7 +75,7 @@ my $env = LMDB::Env->new($dir, { maxdbs => 5 });
     my $c;
     foreach('A' .. 'Z') {
 	$c = ord($_) - ord('A') + 1;
-	my $k = $_ . chr(ord('Z')+1-$c); 
+	my $k = $_ . chr(ord('Z')+1-$c);
 	my $v = sprintf('Datum #%d', $c);
 	$data{$k} = $v;
 	if($c < 4) {

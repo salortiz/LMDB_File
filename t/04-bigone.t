@@ -33,7 +33,7 @@ ok(my $env = LMDB::Env->new($dir,
     is($db->stat->{entries}, $howmany, '2M entries writen');
     diag(sprintf "Writen %d in %g seconds", $howmany, Time::HiRes::tv_interval($t0))
 	if $hastr;
-    $txn->commit; 
+    $txn->commit;
 
     $db = $env->BeginTxn->OpenDB('id1');
     my $cur = $db->Cursor;

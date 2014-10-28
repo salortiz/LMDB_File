@@ -89,7 +89,7 @@ throws_ok {
 
     SKIP: {
 	skip "Unsuported with MDB_WRITEMAP", 2 if $dummy & MDB_WRITEMAP;
-    	isa_ok(my $sub = $env->BeginTxn, 'LMDB::Txn', 'Subtransaction');
+	isa_ok(my $sub = $env->BeginTxn, 'LMDB::Txn', 'Subtransaction');
 	is(Internals::SvREFCNT($$env), 3, 'Env Active');
     }
 
@@ -140,7 +140,7 @@ throws_ok {
 	}
     }
     is($c, 26, 'All in');
-    
+
     # Check data in random HASH order
     $c = 5; # Don't be verbose
     while(my($k, $v) = each %data) {
@@ -150,8 +150,8 @@ throws_ok {
     {	# Check UTF8 Handling
 	use utf8;
 	use Devel::Peek;
-	my $unicode = "♠♡♢♣"; # U+2660 .. U+2663
-	is(length $unicode, 4, 'Four unicode characters'); 
+	my $unicode = "♠♡♢♣"; # U+2660 .. U+2663 
+	is(length $unicode, 4, 'Four unicode characters');
 	my $invariant = "áéíóú";
 	my $latin1 = Encode::encode('Latin1', $invariant);
 	# Without explicit help of LMDB_File we need extra care
@@ -184,7 +184,7 @@ throws_ok {
 	is($data, $encoded, 'Handy');
 	{
 	    # Be permisive
-	    my $warn; 
+	    my $warn;
 	    local $SIG{__WARN__} = sub { $warn = shift };
 	    $data = $DB->get('UNIC2');
 	    like($warn, qr/Malformed/, 'Warning emited');

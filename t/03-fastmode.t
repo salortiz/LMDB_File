@@ -132,7 +132,7 @@ my $val;
     is($DB->ReadMode, 1, 'Preserved');
     $DB->get('A', $fval);
     is($fval =~ tr/A/A/, 99_998, 'Changes preserved');
-    diag(substr($fval, 0, 30)); 
+    diag(substr($fval, 0, 30));
     $fval =~ s/9/\n/g;
     {
 	local $LMDB_File::DEBUG = 1;
