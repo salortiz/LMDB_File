@@ -2,7 +2,7 @@
 use strict;
 use warnings;
 use utf8;
-use Test::More tests => 59;
+use Test::More tests => 58;
 use Test::Exception;
 use Test::ZeroCopy;
 use B;
@@ -70,7 +70,7 @@ my $val;
 	local $TODO = 'End of Txn should invalidate fastmode magic vars';
 	ok(!defined($val), 'Was invalidated');
 	# Commented until fixed ZeroCopy
-	#isnt_zerocopy($fval, $val, 'New Txn, so diferent same buffer');
+	#isnt_zerocopy($fval, $val, 'New Txn, so different buffer');
     }
     my $count = $fval =~ tr/5/5/;
     is($count, 100_000, 'fives');
@@ -85,9 +85,11 @@ my $val;
     is($DB->ReadMode(1), 0, 'No fast read mode preserved');
     $DB->get('A', my $fval);
     #Dump($fval);
-    isnt_zerocopy($fval, $val, 'New Env, so diferent buffer');
+    # According to cpantesters on Mac OS X and Debian's libc-2.3.6 the
+    # same address for mmap is used!!
+    #isnt_zerocopy($fval, $val, 'New Env, so diferent buffer');
     $DB->get('A', $val);
-    for($fval) { # Twist
+    for($fval) { # A twist
 	#Dump($_);
 	is($_, $large1, 'The value is there');
 	my $count;
