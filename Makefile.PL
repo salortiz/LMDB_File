@@ -87,7 +87,7 @@ WriteMakefile(
     TEST_REQUIRES	=> {
 	'Test::More' => 0,
 	'Test::Exception' => 0,
-	'Test::ZeroCopy' => 0
+	#'Test::ZeroCopy' => 0	 Dependency chain broken in String::Slice
     },
     OBJECT		=> '$(O_FILES)', # link all the C files too
     LIBS		=> $LIBS,

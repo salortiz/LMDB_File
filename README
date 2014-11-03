@@ -39,7 +39,7 @@ on your system:
     * To run the test harness for this module:
       - You must make sure that the directory where you have untarred this
       module is NOT a network drive, e.g. NFS or AFS.
-      - You need the Test::Exception and Test::ZeroCopy modules installed.
+      - You need the Test::Exception module installed.
 
 INSTALLATION
 
