@@ -26,7 +26,8 @@ throws_ok {
 } qr/No such|cannot find/, 'RO must exists';
 
 {
-    my $env = new_ok('LMDB::Env' => [ $dir ], "Create Environment");
+    my $env = new_ok('LMDB::Env' => [ $dir ], "Create Environment")
+	or BAIL_OUT("Can't create environment, test the LMDB library first!");
     ok(-e "$dir/data.mdb", 'Data file created exists');
     ok(-e "$dir/lock.mdb", 'Lock file created exists');
     $env->get_path(my $dummy);
