@@ -1,5 +1,5 @@
 Revision history for Perl extension LMDB_File.
-0.07
+0.07 Mon Nov 3 2014
     - All DB perl-implemented attributes (comparators, ReadMode, UTF8, etc.)
       are now keep in Env's wrapper, so preserved across transactions.
     - Implement raw vs UTF-8 encoded DBs. See LMDB_File->UTF8
