@@ -113,10 +113,13 @@ sub DESTROY {
     if(my $evd = delete $Envs{ $$self }) {
 	my $txl = $evd->[0];
 	if(@$txl) { # Only posible at global destruction.
+	    my $txn_count = @$txl;
 	    Carp::carp("LMDB: OOPS! Destroying an active environment!");
-	    Carp::carp("LMDB: Aborting $#$txl transactions in $$self.");
-	    $txl->[$#$txl]->abort;
-	}
+	    Carp::carp("LMDB: Aborting $txn_count transactions in $$self.");
+        foreach my $txn (@$txl) {
+            $txn->abort if defined $txn;
+        }
+    }
     }
     $self->close;
     warn "Closed LMDB::Env $$self (remains @{[scalar keys %Envs]})\n"
