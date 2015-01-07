@@ -658,6 +658,14 @@ mdb_env_sync(env, force=0)
 void
 mdb_env_close(env)
 	LMDB::Env   env
+    PREINIT:
+	dMY_CXT;
+	SV *eidx;
+    POSTCALL:
+	eidx = sv_2mortal(newSVuv(PTR2UV(env)));
+	MY_CXT.envid = (LMDB__Env)hv_delete_ent(
+	    get_hv("LMDB::Env::Envs", 0), eidx, G_DISCARD, 0
+	);
 
 int
 mdb_env_set_flags(env, flags, onoff)

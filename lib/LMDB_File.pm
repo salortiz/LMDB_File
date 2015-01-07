@@ -110,13 +110,12 @@ sub Clean {
 
 sub DESTROY {
     my $self = shift;
-    if(my $evd = delete $Envs{ $$self }) {
-	my $txl = $evd->[0];
-	if(@$txl) { # Only posible at global destruction.
-	    Carp::carp("LMDB: OOPS! Destroying an active environment!");
-	    Carp::carp("LMDB: Aborting $#$txl transactions in $$self.");
-	    $txl->[$#$txl]->abort;
-	}
+    my $txl = $Envs{ $$self } && $Envs{ $$self }[0];
+    if($txl and @$txl and my $topTxn = $txl->[$#$txl]) {
+	# As every Txn references its Env this is only possible at global destruction
+        Carp::carp("LMDB: OOPS! Destroying an active environment!");
+        warn("LMDB: Aborting $#$txl transactions in $$self.") if $DEBUG;
+        $topTxn->abort;
     }
     $self->close;
     warn "Closed LMDB::Env $$self (remains @{[scalar keys %Envs]})\n"
@@ -1482,8 +1481,6 @@ If the function fails for any reason, the state of the cursor will undetermined.
 
 B<NOTE:> Earlier documentation incorrectly said errors would leave the
 state of the cursor unchanged.
-
-=back
 
 =item $cursor->del( [ DELFLAGS ] )
 
