@@ -581,7 +581,7 @@ mdb_env_open(env, path, flags, mode)
 	SV* eidx;
     POSTCALL:
 	ProcError(RETVAL);
-	eidx = sv_2mortal(newSVuv((UV)(MY_CXT.envid = env)));
+	eidx = sv_2mortal(newSVuv(PTR2UV(MY_CXT.envid = env)));
 	av = newAV();
 	av_store(av, 0, newRV_noinc((SV *)newAV())); /* Txns */
 	av_store(av, 1, newRV_noinc((SV *)(MY_CXT.DCmps = newAV())));
