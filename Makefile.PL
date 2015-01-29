@@ -174,7 +174,7 @@ sub MY::postamble {
 $(MYEXTLIB): liblmdb/Makefile
 @[
 	cd liblmdb
-	$(MAKE) liblmdb$(LIB_EXT)
+	$(MAKE) XCFLAGS=-fPIC liblmdb$(LIB_EXT)
 	cd ..
 ]
 EOT
@@ -182,14 +182,14 @@ EOT
 		return <<'EOT';
 $(MYEXTLIB): liblmdb/Makefile
 	cd liblmdb
-	$(MAKE) liblmdb$(LIB_EXT)
+	$(MAKE) XCFLAGS=-fPIC liblmdb$(LIB_EXT)
 	cd ..
 EOT
-	    } 
+	    }
 	} else {
 	    return <<'EOT';
 $(MYEXTLIB): liblmdb/Makefile
-	cd liblmdb && $(MAKE) liblmdb$(LIB_EXT)
+	cd liblmdb && $(MAKE) XCFLAGS=-fPIC liblmdb$(LIB_EXT)
 EOT
 	}
     }
