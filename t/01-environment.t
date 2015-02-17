@@ -39,7 +39,7 @@ throws_ok {
 	my $privflags = 0x30000000; #MDB_ENV_ACTIVE | MDB_ENV_TXKEY
 	$privflags |= MDB_WRITEMAP # Forced, sorry
 	    if $^O =~ /openbsd/;
-	is($dummy, $privflags, 'Flags setted'); # Using private
+	is(($dummy & $privflags), $privflags, 'Flags setted'); # Using private
     }
     ok($env->id, 'Env ID: ' . $env->id);
 
@@ -151,7 +151,7 @@ throws_ok {
     {	# Check UTF8 Handling
 	use utf8;
 	use Devel::Peek;
-	my $unicode = "♠♡♢♣"; # U+2660 .. U+2663 
+	my $unicode = "♠♡♢♣"; # U+2660 .. U+2663
 	is(length $unicode, 4, 'Four unicode characters');
 	my $invariant = "áéíóú";
 	my $latin1 = Encode::encode('Latin1', $invariant);
