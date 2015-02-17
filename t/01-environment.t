@@ -39,7 +39,8 @@ throws_ok {
 	my $privflags = 0x30000000; #MDB_ENV_ACTIVE | MDB_ENV_TXKEY
 	$privflags |= MDB_WRITEMAP # Forced, sorry
 	    if $^O =~ /openbsd/;
-	is(($dummy & $privflags), $privflags, 'Flags setted'); # Using private
+    $dummy &= ~ 0x08000000;
+	is($dummy, $privflags, 'Flags setted'); # Using private
     }
     ok($env->id, 'Env ID: ' . $env->id);
 
