@@ -26,8 +26,15 @@ on your system:
     * LMDB Version 0.9.10 or greater.
       You can get the latest version from git://gitorious.org/mdb/mdb.git.
 
-      Some Linux distributions are now including it.
-      In Fedora 20, for example, all you need is "yum install lmdb-devel"
+      Some Linux distributions are now including it:
+
+        * Fedora 20 
+            
+            `yum install lmdb-devel`
+
+        * Ubuntu
+
+            `apt-get install liblmdb-dev`
 
       If the library and its header file isn't found installed in
       your system, Makefile.PL will _try_ to compile the recent copy
