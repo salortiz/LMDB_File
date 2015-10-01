@@ -24,7 +24,7 @@ on your system:
     * A working C compiler.
 
     * LMDB Version 0.9.10 or greater.
-      You can get the latest version from git://gitorious.org/mdb/mdb.git.
+      You can get the latest version from https://github.com/LMDB/lmdb.
 
       Some Linux distributions are now including it.
       In Fedora 20, for example, all you need is "yum install lmdb-devel"
