@@ -158,7 +158,7 @@ my $val;
 	is($io->getline, "pqrstuvwx\n");
 	my($c, $l) = (3, 30); #So far
 	while(<$io>) { $c++; $l += length; }
-	is($c, 100_000, 'All readed');
+	is($c, 100_000, 'All read');
 	is($l, 1_000_000, 'Complete');
     }
 }

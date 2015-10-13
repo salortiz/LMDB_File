@@ -56,7 +56,7 @@ my $myextlib = '';
 	#LMDB needs pthread, so perl needs to be linked with.
 	unless ($Config{perllibs} =~ 'pthread') {
 	    warn "LMDB_File needs a perl linked with 'pthread'.\n" .
-		 "The module will be builded, but can't be loaded\n" .
+		 "The module will be build, but can't be loaded\n" .
 		 "without proper initialization.\n(See perl #122906)\n";
 	    $LIBS .= ' -lpthread';
 	}
