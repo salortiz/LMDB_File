@@ -1,4 +1,3 @@
-liblmdb
 const-*.inc
 Makefile
 MYMETA.*
