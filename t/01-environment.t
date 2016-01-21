@@ -8,10 +8,8 @@ use Encode;
 use File::Temp;
 use LMDB_File qw(:envflags :cursor_op);
 
-if($ENV{LANG} && $ENV{LANG} !~ /^en/) {
-    # The tests needs 'C' LC_MESSAGES
-    eval { require POSIX; POSIX::setlocale(POSIX::LC_MESSAGES(), 'C'); }
-}
+# The tests needs 'C' LC_MESSAGES
+eval { require POSIX; POSIX::setlocale(POSIX::LC_ALL(), 'C'); };
 
 throws_ok {
     LMDB::Env->new("NoSuChDiR");
