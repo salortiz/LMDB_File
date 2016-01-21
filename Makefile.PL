@@ -8,7 +8,7 @@ if($Config{archname} =~ /686/) {
     exit 0;
 }
 
-my $local_liblmdb_dir = './liblmdb/libraries/liblmdb';
+my $lmdb_dir = 'liblmdb/libraries/liblmdb';
 
 my $LNAME = 'LMDB';
 my $NAME = "${LNAME}_File";
@@ -30,11 +30,11 @@ my $myextlib = '';
 	warn "If that path isn't a standard one, you may need to set LD_LIBRARY_PATH!\n"
 	    if($libdata[4][0] =~ /.so/);
     } else {
-	unless(-e "$local_liblmdb_dir/Makefile") {
-	    warn "Clone lmdb from its repo and put a copy/link of 'liblmdb' in this directory";
+	unless(-e "$lmdb_dir/Makefile") {
+	    warn "Clone lmdb from its repo and put a copy/link in 'liblmdb' directory";
 	    exit 0;
 	}
-	$myextlib = 'liblmdb/libraries/liblmdb/liblmdb$(LIB_EXT)';
+	$myextlib = "$lmdb_dir/liblmdb\$(LIB_EXT)";
     }
 
     $LIBS .= ' -lrt' if $^O =~ /solaris/i;
@@ -95,7 +95,7 @@ WriteMakefile(
     LIBS		=> $LIBS,
     ($myextlib ? (
 	MYEXTLIB	=> $myextlib,
-	INC		=> "-I$local_liblmdb_dir",
+	INC		=> "-I$lmdb_dir",
 	) : (
 	INC		=> $INC
 	)
