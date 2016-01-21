@@ -1,4 +1,4 @@
-LMDB_File version 0.07
+LMDB_File version 0.08
 ======================
 
 LMDB_File is a Perl wrapper around the OpenLDAP's LMDB (Lightning
@@ -15,21 +15,21 @@ PREREQUISITES
 
 Right now LMDB needs a 64bits platform.
 
-Before you can build LMDB_File you need to have the following installed
+ Before you can build LMDB_File you need to have the following installed
 on your system:
 
     * Perl 5.10.0 or greater linked with pthreads.
-      See https://rt.perl.org/Public/Bug/Display.html?id=122906 
+      See https://rt.perl.org/Public/Bug/Display.html?id=122906
 
     * A working C compiler.
 
-    * LMDB Version 0.9.10 or greater.
+    * LMDB Version 0.9.17 or greater.
       You can get the latest version from https://github.com/LMDB/lmdb.
 
       Some Linux distributions are now including it:
 
-        * Fedora 20 
-            
+        * Fedora 20+
+
             `yum install lmdb-devel`
 
         * Ubuntu
@@ -42,7 +42,7 @@ on your system:
 
       NOTE: At this time there is no yet an official release of the library,
       so in some platforms its Makefile may need some work.
-      
+
     * To run the test harness for this module:
       - You must make sure that the directory where you have untarred this
       module is NOT a network drive, e.g. NFS or AFS.
@@ -65,7 +65,7 @@ be aware that the API isn't in stone yet. See TODO
 
 COPYRIGHT AND LICENCE
 
-Copyright (C) 2013-2014 by Salvador Ortiz Garcia
+Copyright (C) 2013-2016 by Salvador Ortiz Garcia
 
 This module is free software; you can redistribute it and/or modify
 it under the same terms as Perl itself, either Perl version 5.10.1 or,
