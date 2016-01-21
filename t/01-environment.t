@@ -36,10 +36,10 @@ throws_ok {
     # Environment flags
     {
 	$env->get_flags($dummy);
-	my $privflags = 0x30000000; #MDB_ENV_ACTIVE | MDB_ENV_TXKEY
-	$privflags |= MDB_WRITEMAP # Forced, sorry
-	    if $^O =~ /openbsd/;
-	is($dummy, $privflags, 'Flags setted'); # Using private
+	my $expflags = 
+	    $^O =~ /openbsd/ ? MDB_WRITEMAP : # Forced, sorry
+	    0x0; # None set
+	is($dummy, $expflags, 'Flags setted'); # Using private
     }
     ok($env->id, 'Env ID: ' . $env->id);
 
