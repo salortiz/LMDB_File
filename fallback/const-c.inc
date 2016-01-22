@@ -162,8 +162,8 @@ static int
 constant_11 (pTHX_ const char *name, IV *iv_return) {
   /* When generated this function returned values for the list of names given
      here.  However, subsequent manual editing may have added or removed some.
-     MDB_BAD_DBI MDB_BAD_TXN MDB_CURRENT MDB_DUPSORT MDB_INVALID MDB_RESERVE
-     MDB_SET_KEY MDB_SUCCESS */
+     LMDB_OFLAGN MDB_BAD_DBI MDB_BAD_TXN MDB_CURRENT MDB_DUPSORT MDB_INVALID
+     MDB_RESERVE MDB_SET_KEY MDB_SUCCESS */
   /* Offset 9 gives the best switch position.  */
   switch (name[9]) {
   case 'B':
@@ -182,6 +182,17 @@ constant_11 (pTHX_ const char *name, IV *iv_return) {
     /*                        ^        */
       *iv_return = MDB_SET_KEY;
       return PERL_constant_ISIV;
+    }
+    break;
+  case 'G':
+    if (memEQ(name, "LMDB_OFLAGN", 11)) {
+    /*                        ^        */
+#ifdef LMDB_OFLAGN
+      *iv_return = LMDB_OFLAGN;
+      return PERL_constant_ISIV;
+#else
+      return PERL_constant_NOTDEF;
+#endif
     }
     break;
   case 'I':
@@ -816,9 +827,9 @@ constant (pTHX_ const char *name, STRLEN len, IV *iv_return, const char **pv_ret
 use ExtUtils::Constant qw (constant_types C_constant XS_constant);
 
 my $types = {map {($_, 1)} qw(IV PV)};
-my @names = (qw(MDB_APPEND MDB_APPENDDUP MDB_BAD_DBI MDB_BAD_RSLOT MDB_BAD_TXN
-	       MDB_BAD_VALSIZE MDB_CORRUPTED MDB_CP_COMPACT MDB_CREATE
-	       MDB_CURRENT MDB_CURSOR_FULL MDB_DBS_FULL MDB_DUPFIXED
+my @names = (qw(LMDB_OFLAGN MDB_APPEND MDB_APPENDDUP MDB_BAD_DBI MDB_BAD_RSLOT
+	       MDB_BAD_TXN MDB_BAD_VALSIZE MDB_CORRUPTED MDB_CP_COMPACT
+	       MDB_CREATE MDB_CURRENT MDB_CURSOR_FULL MDB_DBS_FULL MDB_DUPFIXED
 	       MDB_DUPSORT MDB_FIXEDMAP MDB_INCOMPATIBLE MDB_INTEGERDUP
 	       MDB_INTEGERKEY MDB_INVALID MDB_KEYEXIST MDB_LAST_ERRCODE
 	       MDB_MAPASYNC MDB_MAP_FULL MDB_MAP_RESIZED MDB_MULTIPLE
