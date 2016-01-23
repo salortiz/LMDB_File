@@ -673,10 +673,16 @@ mdb_env_set_flags(env, flags, onoff)
 	unsigned int	flags
 	int	onoff
 
+#define	CHANGEABLE	(MDB_NOSYNC|MDB_NOMETASYNC|MDB_MAPASYNC|MDB_NOMEMINIT)
+#define	CHANGELESS	(MDB_FIXEDMAP|MDB_NOSUBDIR|MDB_RDONLY| \
+	MDB_WRITEMAP|MDB_NOTLS|MDB_NOLOCK|MDB_NORDAHEAD)
+
 int
 mdb_env_get_flags(env, flags)
 	LMDB::Env   env
 	unsigned int &flags = NO_INIT
+    POSTCALL:
+	flags &= (CHANGEABLE|CHANGELESS);
     OUTPUT:
 	flags
 
