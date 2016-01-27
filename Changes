@@ -1,4 +1,7 @@
 Revision history for Perl extension LMDB_File.
+0.09 Wed Jan 27 2016
+    - Stole^WPort lmdb fix for my env_get_flags as a fix for older lmdbs
+
 0.08 Tue Jan 21 2016
     - Include liblmdb 0.9.70
     - Adjust a test for fixed env_get_flags
