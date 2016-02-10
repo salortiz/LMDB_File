@@ -29,6 +29,11 @@ my $myextlib = '';
 	$LIBS ||= '-llmdb';
 	warn "If that path isn't a standard one, you may need to set LD_LIBRARY_PATH!\n"
 	    if($libdata[4][0] =~ /.so/);
+    } elsif (eval { require Alien::LMDB }) {
+	my $alien = Alien::LMDB->new;
+	$INC = $alien->cflags;
+	$LIBS = $alien->libs;
+	warn "Using Alien::LMDB (" . $alien->install_type . "): " . $alien->dist_dir . "\n";
     } else {
 	unless(-e "$lmdb_dir/Makefile") {
 	    warn "Clone lmdb from its repo and put a copy/link in 'liblmdb' directory";
