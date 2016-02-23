@@ -114,7 +114,7 @@ static void
 populateStat(pTHX_ HV** hashptr, int res, MDB_stat *stat)
 {
     HV* RETVAL;
-    if(res) 
+    if(res)
 	croak(mdb_strerror(res));
     RETVAL = newHV();
     StoreUV("psize", stat->ms_psize);
@@ -471,6 +471,29 @@ LMDB_cmp(const MDB_val *a, const MDB_val *b) {
 
 #ifdef dMULTICALL
 /* If this perl has MULTICALL support, use it for the DATA comparer */
+#if PERL_VERSION < 13 || (PERL_VERSION == 13 && PERL_SUBVERSION < 9)
+#define FIXREFCOUNT if(CvDEPTH(multicall_cv) > 1) \
+    SvREFCNT_inc_simple_void_NN(multicall_cv)
+#else
+#define FIXREFCOUNT
+#endif
+#if PERL_VERSION < 23 || (PERL_VERSION == 23 && PERL_SUBVERSION < 8)
+#define MY_POP_MULTICALL \
+    if(multicall_cv) {	\
+	FIXREFCOUNT;	\
+	POP_MULTICALL;	\
+	newsp = newsp;	\
+    }
+#define MYMCINIT	multicall_cv = NULL
+#else
+#define MY_POP_MULTICALL    if(multicall_cop) { POP_MULTICALL; }
+#if PERL_VERSION == 23 && PERL_SUBVERSION == 8
+#define MYMCINIT	multicall_oldcatch = 0
+#else
+#define MYMCINIT
+#endif
+#endif
+
 static int
 LMDB_dcmp(const MDB_val *a, const MDB_val *b) {
     dTHX;
@@ -482,13 +505,15 @@ LMDB_dcmp(const MDB_val *a, const MDB_val *b) {
     return SvIV(*PL_stack_sp);
 }
 
+
 #define dMY_MULTICALL \
     dMCOMMON;          \
     dMULTICALL;         \
+    multicall_cop = NULL; \
     I32 gimme = G_SCALAR
 
 #define MY_PUSH_MULTICALL \
-    multicall_cv = NULL;   \
+    MYMCINIT;		  \
     if(CvValid(my_dcmpsv)) {			\
 	PUSH_MULTICALL((CV *)SvRV(my_dcmpsv));	\
 	MY_CXT.lmdb_dcmp_cop = multicall_cop;	\
@@ -497,19 +522,6 @@ LMDB_dcmp(const MDB_val *a, const MDB_val *b) {
     }						\
     MY_PUSH_COMMON
 
-#if PERL_VERSION < 13 || (PERL_VERSION == 13 && PERL_SUBVERSION < 9)
-#define FIXREFCOUNT if(CvDEPTH(multicall_cv) > 1) \
-    SvREFCNT_inc_simple_void_NN(multicall_cv)
-#else
-#define FIXREFCOUNT
-#endif
-
-#define MY_POP_MULTICALL \
-    if(multicall_cv) {	\
-	FIXREFCOUNT;	\
-	POP_MULTICALL;	\
-	newsp = newsp;  \
-    }
 
 #else /* NO MULTICALL support, use a slow path */
 
