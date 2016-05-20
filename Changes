@@ -1,4 +1,7 @@
 Revision history for Perl extension LMDB_File.
+0.10 Fri May 20 2016
+    - Update for changes in MULTICALL API in 5.24
+
 0.09 Wed Jan 27 2016
     - Stole^WPort lmdb fix for my env_get_flags as a fix for older lmdbs
 
