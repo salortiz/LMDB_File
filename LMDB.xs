@@ -565,8 +565,7 @@ LMDB_dcmp(const MDB_val *a, const MDB_val *b) {
 #define ProcError(res)   \
     if(UNLIKELY(res)) {				\
 	sv_setiv(LastErrSV, res);		\
-	SV *sv = newSVpvf("%s", mdb_strerror(res));	\
-	SvSetSV(ERRSV, sv);			\
+	sv_setpv(ERRSV, mdb_strerror(res));     \
 	if(DieOnErr) croak(NULL);		\
 	XSRETURN_IV(res);			\
     }
