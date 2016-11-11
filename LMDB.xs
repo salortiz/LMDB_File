@@ -810,6 +810,13 @@ mdb_txn_id(txn)
     OUTPUT:
 	RETVAL
 
+MODULE = LMDB_File	PACKAGE = LMDB::Txn	PREFIX = mdb_txn_
+
+size_t
+mdb_txn_id(txn)
+	LMDB::Txn   txn
+
+
 MODULE = LMDB_File	PACKAGE = LMDB::Txn	PREFIX = mdb
 
 int

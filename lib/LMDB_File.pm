@@ -1083,6 +1083,13 @@ Provided for when your main concern is the raw speed.
 For details of the other arguments, please see the method of the same name
 in LMDB_File below.
 
+=item $Txn->id ()
+
+Return the transaction's ID.
+This returns the identifier associated with this transaction. For a
+read-only transaction, this corresponds to the snapshot being read;
+concurrent readers will frequently have the same transaction ID.
+
 =back
 
 =head1 LMDB_File
