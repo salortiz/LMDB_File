@@ -1,4 +1,8 @@
 Revision history for Perl extension LMDB_File.
+0.12 Wed Jan 25 2017
+    - Conditionally compile mdb_txn_id support.
+    - Updated README
+
 0.11 Tue Jan 24 2017
     - Fix a leak in error path
     - Add support for mdb_txn_id
