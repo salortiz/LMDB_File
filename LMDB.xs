@@ -812,10 +812,12 @@ mdb_txn_id(txn)
 
 MODULE = LMDB_File	PACKAGE = LMDB::Txn	PREFIX = mdb_txn_
 
+#if MDB_VERSION_FULL > MDB_VERINT(0,9,14)
 size_t
 mdb_txn_id(txn)
 	LMDB::Txn   txn
 
+#endif
 
 MODULE = LMDB_File	PACKAGE = LMDB::Txn	PREFIX = mdb
 
