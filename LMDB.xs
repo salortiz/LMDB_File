@@ -110,6 +110,49 @@ S_mySvPVutf8(pTHX_ SV *sv, STRLEN *const len) {
 
 typedef IV MyInt;
 
+/* lifted from Perl core and simplified [rt.cpan.org #148421] */
+STATIC UV
+my_do_vecget(pTHX_ SV *sv, STRLEN offset, int size)
+{
+    STRLEN srclen;
+    const I32 svpv_flags = ((PL_op->op_flags & OPf_MOD || LVRET)
+                                          ? SV_UNDEF_RETURNS_NULL : 0);
+    unsigned char *s = (unsigned char *)
+                            SvPV_flags(sv, srclen, (svpv_flags|SV_GMAGIC));
+    UV retnum = 0;
+
+    if (!s) {
+      s = (unsigned char *)"";
+    }
+
+    /* aka. PERL_ARGS_ASSERT_DO_VECGET */
+    assert(sv);
+    /* sanity checks to make sure the premises for our simplifications still hold */
+    assert(LMDB_OFLAGN <= 8);
+    if (size != LMDB_OFLAGN)
+        Perl_croak(aTHX_ "This is a crippled version of vecget that supports size==%d (LMDB_OFLAGN)", LMDB_OFLAGN);
+
+    if (SvUTF8(sv)) {
+        if (Perl_sv_utf8_downgrade_flags(aTHX_ sv, TRUE, 0)) {
+            /* PVX may have changed */
+            s = (unsigned char *) SvPV_flags(sv, srclen, svpv_flags);
+        }
+        else {
+            Perl_croak(aTHX_ "Use of strings with code points over 0xFF"
+                             " as arguments to vec is forbidden");
+        }
+    }
+
+    STRLEN bitoffs = ((offset % 8) * size) % 8;
+    STRLEN uoffset = offset / (8 / size);
+
+    if (uoffset >= srclen)
+        return 0;
+
+    retnum = (s[uoffset] >> bitoffs) & nBIT_MASK(size);
+    return retnum;
+}
+
 static void
 populateStat(pTHX_ HV** hashptr, int res, MDB_stat *stat)
 {
@@ -152,7 +195,7 @@ typedef struct {
 
 START_MY_CXT
 
-#define LMDB_OFLAGS TOHIWORD(Perl_do_vecget(aTHX_ MY_CXT.OFlags, dbi, LMDB_OFLAGN))
+#define LMDB_OFLAGS TOHIWORD(my_do_vecget(aTHX_ MY_CXT.OFlags, dbi, LMDB_OFLAGN))
 #define MY_CMP   *av_fetch(MY_CXT.Cmps, MY_CXT.curdb, 1)
 #define MY_DCMP	 *av_fetch(MY_CXT.DCmps, MY_CXT.curdb, 1)
 
