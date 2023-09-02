@@ -115,7 +115,7 @@ populateStat(pTHX_ HV** hashptr, int res, MDB_stat *stat)
 {
     HV* RETVAL;
     if(res)
-	croak(mdb_strerror(res));
+	croak("%s", mdb_strerror(res));
     RETVAL = newHV();
     StoreUV("psize", stat->ms_psize);
     StoreUV("depth", stat->ms_depth);
@@ -191,7 +191,7 @@ START_MY_CXT
 	data.mv_size = sizeof(MyInt);				\
     }								\
     else data.mv_data = LwUTF8 ? MySvPVutf8(sv, data.mv_size)	\
-		               : MySvPV(sv, data.mv_size)
+			       : MySvPV(sv, data.mv_size)
 
 /* ZeroCopy support
  *
@@ -913,17 +913,17 @@ mdb_cursor_put(cursor, key, data, flags = 0, ...)
 		? mdb_env_get_maxkeysize(envid)
 		: 0xffffffff;
 	    if(items != 5)
-		croak("%s: MDB_RESERVE needs a length argument (1 .. %d)",
+		croak("%s: MDB_RESERVE needs a length argument (1 .. %zu)",
 		      "LMDB_File::_put", max_size);
 	    res_size = SvUV(ST(5));
 	    if(res_size == 0)
 		croak("%s: MDB_RESERVE length must be > 0",
 		      "LMDB_File::_put");
 	    if(ISDBDINT && res_size != sizeof(MyInt))
-		croak("%s: MDB_RESERVE with MDB_INTEGERDUP length should be %d",
+		croak("%s: MDB_RESERVE with MDB_INTEGERDUP length should be %zu",
 		      "LMDB_File::_put", sizeof(MyInt));
 	    if(res_size > max_size)
-		croak("%s: MDB_RESERVE length should be <= %d", max_size);
+		croak("%s: MDB_RESERVE length should be <= %zu", "LMDB_File::_put", max_size);
 	    data.mv_size = res_size;
 	    data.mv_data = NULL;
 	} else {
@@ -1064,17 +1064,18 @@ mdb_put(txn, dbi, key, data, flags = 0, ...)
 		? mdb_env_get_maxkeysize(envid)
 		: 0xffffffff;
 	    if(items != 6)
-		croak("%s: MDB_RESERVE needs a length argument (1 .. %d)",
+		croak("%s: MDB_RESERVE needs a length argument (1 .. %zu)",
 		      "LMDB_File::_put", max_size);
 	    res_size = SvUV(ST(5));
 	    if(res_size == 0)
 		croak("%s: MDB_RESERVE length must be > 0",
 		      "LMDB_File::_put");
 	    if(ISDBDINT && res_size != sizeof(MyInt))
-		croak("%s: MDB_RESERVE with MDB_INTEGERDUP length should be %d",
+		croak("%s: MDB_RESERVE with MDB_INTEGERDUP length should be %zu",
 		      "LMDB_File::_put", sizeof(MyInt));
 	    if(res_size > max_size)
-		croak("%s: MDB_RESERVE length should be <= %d", max_size);
+		croak("%s: MDB_RESERVE length should be <= %zu",
+		      "LMDB_File::_put", max_size);
 	    data.mv_size = res_size;
 	    data.mv_data = NULL;
 	} else {
