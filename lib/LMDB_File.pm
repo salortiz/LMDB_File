@@ -151,6 +151,7 @@ sub new {
 	if !ref($parent) && @$txl;
     _begin($env, ref($parent) && $parent, $tflags, my $self);
     return unless $self;
+    $tflags = 0 unless defined $tflags ; 
     $Txns{$$self} = {
 	Active => 1,
 	Env => $env, # A transaction references the environment
