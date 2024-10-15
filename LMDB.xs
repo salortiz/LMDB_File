@@ -901,7 +901,7 @@ mdb_cursor_close(cursor)
 int
 mdb_cursor_count(cursor, count)
 	LMDB::Cursor	cursor
-	UV  &count = NO_INIT
+	size_t  &count = NO_INIT
     OUTPUT:
 	count
 
